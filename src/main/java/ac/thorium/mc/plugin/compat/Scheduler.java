@@ -12,10 +12,11 @@ import java.util.function.Consumer;
 public final class Scheduler {
     private final Plugin plugin;
     private final boolean folia;
-    private final Object globalScheduler, asyncScheduler;
+    private final Object globalScheduler, asyncScheduler, regionScheduler;
     private final Method entityGetScheduler, entityRun, entityRunAtFixedRate;
     private final Method globalRun, globalRunAtFixedRate, globalCancelTasks;
     private final Method asyncRunNow, asyncCancelTasks;
+    private final Method regionExecute;
     private final Method scheduledTaskCancel;
 
     private Scheduler(Plugin plugin, boolean folia) {
@@ -24,8 +25,12 @@ public final class Scheduler {
         if (folia) {
             Method getGlobal = Reflect.method(Bukkit.class, "getGlobalRegionScheduler");
             Method getAsync = Reflect.method(Bukkit.class, "getAsyncScheduler");
+            Method getRegion = Reflect.method(Bukkit.class, "getRegionScheduler");
             globalScheduler = Reflect.invoke(getGlobal, null);
             asyncScheduler = Reflect.invoke(getAsync, null);
+            regionScheduler = Reflect.invoke(getRegion, null);
+            regionExecute = getRegion == null ? null : Reflect.method(getRegion.getReturnType(), "execute",
+                    Plugin.class, org.bukkit.World.class, int.class, int.class, Runnable.class);
             // Look methods up on the public interfaces (impl classes may be package-private).
             Class<?> grs = getGlobal.getReturnType();
             Class<?> as = getAsync.getReturnType();
@@ -40,10 +45,11 @@ public final class Scheduler {
             entityRunAtFixedRate = Reflect.method(es, "runAtFixedRate", Plugin.class, Consumer.class, Runnable.class, long.class, long.class);
             scheduledTaskCancel = Reflect.method("io.papermc.paper.threadedregions.scheduler.ScheduledTask", "cancel");
         } else {
-            globalScheduler = asyncScheduler = null;
+            globalScheduler = asyncScheduler = regionScheduler = null;
             entityGetScheduler = entityRun = entityRunAtFixedRate = null;
             globalRun = globalRunAtFixedRate = globalCancelTasks = null;
             asyncRunNow = asyncCancelTasks = scheduledTaskCancel = null;
+            regionExecute = null;
         }
     }
 
@@ -86,6 +92,26 @@ public final class Scheduler {
             return Reflect.invoke(entityRunAtFixedRate, es, plugin, wrap(r), null, Math.max(1, delayTicks), Math.max(1, periodTicks));
         }
         return Bukkit.getScheduler().runTaskTimer(plugin, r, delayTicks, periodTicks);
+    }
+
+    /**
+     * Runs on the thread allowed to touch one chunk: the region thread that owns
+     * it on Folia, the main thread everywhere else. Chunk reads must go through
+     * this — Bukkit world access is not thread-safe, and on Folia "the main
+     * thread" is not even the right answer.
+     *
+     * @return false when the work could not be dispatched
+     */
+    public boolean runForChunk(org.bukkit.World world, int chunkX, int chunkZ, Runnable r) {
+        if (world == null) return false;
+        if (folia) {
+            if (regionExecute == null || regionScheduler == null) return false;
+            Reflect.invoke(regionExecute, regionScheduler, plugin, world, chunkX, chunkZ, r);
+            return true;
+        }
+        if (Bukkit.isPrimaryThread()) { r.run(); return true; }
+        Bukkit.getScheduler().runTask(plugin, r);
+        return true;
     }
 
     public void runAsync(Runnable r) {

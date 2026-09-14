@@ -9,6 +9,7 @@ option java_multiple_files = true;
 import "thorium/mc/v1/common.proto";
 import "thorium/mc/v1/packets.proto";
 import "thorium/mc/v1/verdict.proto";
+import "thorium/mc/v1/world.proto";
 
 // Every WebSocket binary frame from the plugin is exactly one UpStream.
 message UpStream {
@@ -17,6 +18,8 @@ message UpStream {
     Batch batch = 2;
     Heartbeat heartbeat = 3;
     PlayerEvent player_event = 4;
+    WorldChunk world_chunk = 5;
+    WorldDelta world_delta = 6;
   }
 }
 
@@ -105,6 +108,7 @@ message Control {
 message IngestPolicy {
   int32 flush_interval_ms = 1;
   repeated string enabled_categories = 2;  // movement, combat, block, inventory, client
+  WorldPolicy world = 3;
 }
 message Disconnect { string reason = 1; bool reconnect = 2; int32 backoff_ms = 3; }
 message PluginUpdate { string version = 1; string download_url = 2; string sha256 = 3; }

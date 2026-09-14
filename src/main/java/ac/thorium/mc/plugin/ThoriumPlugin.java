@@ -14,6 +14,9 @@ import ac.thorium.mc.plugin.telemetry.ContextTracker;
 import ac.thorium.mc.plugin.telemetry.SampleBuffer;
 import ac.thorium.mc.plugin.telemetry.Telemetry;
 import ac.thorium.mc.plugin.transport.*;
+import ac.thorium.mc.plugin.world.WorldBlockEvents;
+import ac.thorium.mc.plugin.world.WorldMirror;
+import ac.thorium.mc.plugin.world.WorldSampler;
 import ac.thorium.mc.proto.HelloAck;
 import ac.thorium.mc.proto.IngestPolicy;
 import ac.thorium.mc.proto.PluginUpdate;
@@ -39,6 +42,9 @@ public final class ThoriumPlugin extends JavaPlugin {
     private PacketCapture capture;
     private PacketSend send;
     private BukkitEvents events;
+    private WorldMirror world;
+    private WorldSampler worldSampler;
+    private WorldBlockEvents worldEvents;
     private boolean packetEventsReady;
 
     @Override
@@ -80,11 +86,15 @@ public final class ThoriumPlugin extends JavaPlugin {
         String version = getDescription().getVersion();
         SampleBuffer buffer = new SampleBuffer(400);
         enforcer = new Enforcer(getServer(), sched, compat, gate, alerts, cfg, getLogger());
-        ContextTracker contexts = new ContextTracker(sched, compat, gate, () -> telemetry == null ? 0L : telemetry.tick());
+        world = new WorldMirror();
+        // When the engine is mirroring the world it derives the block flags itself,
+        // so the context tracker can skip its per-tick block reads entirely.
+        ContextTracker contexts = new ContextTracker(sched, compat, gate,
+                () -> telemetry == null ? 0L : telemetry.tick(), world::enabled);
         ConnectionConfig ccfg = new ConnectionConfig(cfg.gatewayUrl, cfg.devSessionToken, version);
         TokenSource tokens = new SessionAuth(cfg.gatewayUrl, cfg.serverToken, version, 10_000);
         connection = new EngineConnection(ccfg, tokens, () -> telemetry.buildHello(), new Handler(), getLogger());
-        telemetry = new Telemetry(connection, buffer, contexts, compat, sched, gate, cfg, version, getServer().getOnlineMode(), getLogger());
+        telemetry = new Telemetry(connection, buffer, contexts, world, compat, sched, gate, cfg, version, getServer().getOnlineMode(), getLogger());
         if (packetEventsReady) {
             capture = new PacketCapture(telemetry, sched, gate);
             PacketEvents.getAPI().getEventManager().registerListener(capture);
@@ -94,6 +104,12 @@ public final class ThoriumPlugin extends JavaPlugin {
         }
         events = new BukkitEvents(telemetry, capture, gate, cfg.sendIp);
         getServer().getPluginManager().registerEvents(events, this);
+        // World streaming stays dormant until the engine's IngestPolicy turns it on,
+        // so upgrading the plugin never costs a server TPS on its own.
+        worldEvents = new WorldBlockEvents(world, gate);
+        getServer().getPluginManager().registerEvents(worldEvents, this);
+        worldSampler = new WorldSampler(world, sched, gate, getServer());
+        worldSampler.start();
         for (Player p : getServer().getOnlinePlayers()) telemetry.track(p);
         telemetry.start();
         connection.start();
@@ -101,11 +117,14 @@ public final class ThoriumPlugin extends JavaPlugin {
 
     private void stopPipeline() {
         if (connection != null) connection.stop();
+        if (worldSampler != null) worldSampler.stop();
+        if (worldEvents != null) HandlerList.unregisterAll(worldEvents);
         if (telemetry != null) telemetry.stop();
         if (capture != null && packetEventsReady) PacketEvents.getAPI().getEventManager().unregisterListener(capture);
         if (send != null && packetEventsReady) PacketEvents.getAPI().getEventManager().unregisterListener(send);
         if (events != null) HandlerList.unregisterAll(events);
         connection = null; telemetry = null; capture = null; send = null; events = null;
+        worldSampler = null; worldEvents = null; world = null;
     }
 
     /** /thorium reconnect: re-read config and rebuild the whole pipeline so every key takes effect. */
@@ -132,7 +151,11 @@ public final class ThoriumPlugin extends JavaPlugin {
     public PluginConfig config() { return cfg; }
 
     private final class Handler implements DownstreamHandler {
-        @Override public void onHelloAck(HelloAck ack) {}
+        @Override public void onHelloAck(HelloAck ack) {
+            // The handshake carries the org's starting policy, world streaming included.
+            Telemetry t = telemetry;
+            if (t != null && ack.hasPolicy()) t.applyPolicy(ack.getPolicy());
+        }
         @Override public void onVerdict(Verdict v) { enforcer.accept(v); }
         @Override public void onPolicy(IngestPolicy p) { Telemetry t = telemetry; if (t != null) t.applyPolicy(p); }
         @Override public void onPluginUpdate(PluginUpdate u) { getLogger().warning("Thorium: plugin update available: " + u.getVersion() + " " + u.getDownloadUrl()); }

@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option go_package = "github.com/ThoriumAC/Thorium-Minecraft/internal/proto/thorium/mc/v1;mcv1";
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+// World state streaming. The plugin mirrors the blocks around every tracked
+// player so the engine can run real vanilla collision instead of inferring
+// geometry from the ServerMeta booleans, and so replays and spectate carry
+// terrain. The plugin takes chunk snapshots on the owning thread in a per-tick
+// budget, then packages and sends them from its flush worker.
+
+// A 16x16x16 cube of blocks, addressed in section coordinates (block >> 4).
+message SectionPos {
+  string dimension = 1;
+  sint32 x = 2;
+  sint32 y = 3;
+  sint32 z = 4;
+}
+
+// One section's block states.
+//
+// Palette entries are opaque state strings the engine maps to collision shapes:
+// "minecraft:oak_stairs[facing=north,half=bottom,shape=straight]" on 1.13+, and
+// the legacy "STONE:0" material:data form below that.
+//
+// indices holds 4096 entries in Minecraft's own YZX order, so the entry for a
+// block at section-local (x, y, z) lives at (y << 8) | (z << 4) | x. Each entry
+// is one byte when the palette has 256 or fewer entries and two little-endian
+// bytes otherwise. A uniform section (palette size 1, overwhelmingly the common
+// case for air and stone) carries no indices at all.
+message Section {
+  SectionPos pos = 1;
+  repeated string palette = 2;
+  uint32 bits_per_index = 3;  // 0 (uniform), 8, or 16
+  bytes indices = 4;
+}
+
+// Sections streamed to the engine. The initial sync after a connection becomes
+// ready sends these in budgeted batches; sections a player later walks into
+// arrive the same way.
+message WorldChunk {
+  repeated Section sections = 1;
+  bool full_sync_start = 2;  // engine drops any existing model for this server first
+  bool full_sync_done = 3;   // the initial sync finished; the model is complete
+}
+
+message BlockChange {
+  uint32 offset = 1;  // (y << 8) | (z << 4) | x within the section
+  string block = 2;   // the same state string form as Section.palette
+}
+
+message SectionChanges {
+  SectionPos section = 1;
+  repeated BlockChange changes = 2;
+}
+
+// Block changes since the last delta frame, applied in order. Changes to a
+// section the engine does not hold are ignored; the plugin sends the whole
+// section instead when a player first enters it.
+message WorldDelta {
+  int64 client_time_ms = 1;
+  int64 tick = 2;
+  repeated SectionChanges sections = 3;
+  repeated SectionPos dropped = 4;  // sections the plugin stopped tracking (unloaded or out of range)
+}
+
+// Per-org control over world streaming, delivered in IngestPolicy. Streaming is
+// off unless the engine turns it on, so a plugin upgrade never costs a server
+// TPS until its org opts in.
+message WorldPolicy {
+  bool enabled = 1;
+  uint32 radius_chunks = 2;     // chunk columns around each player to mirror; 0 = engine default
+  uint32 columns_per_tick = 3;  // snapshot budget per tick across all players; 0 = engine default
+}

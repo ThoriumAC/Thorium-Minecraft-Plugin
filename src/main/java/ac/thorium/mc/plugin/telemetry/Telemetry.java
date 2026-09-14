@@ -7,6 +7,7 @@ import ac.thorium.mc.plugin.config.PluginConfig;
 import ac.thorium.mc.plugin.transport.EngineConnection;
 import ac.thorium.mc.plugin.transport.HelloSupplier;
 import ac.thorium.mc.plugin.capture.SampleFactory;
+import ac.thorium.mc.plugin.world.WorldMirror;
 import ac.thorium.mc.proto.*;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
@@ -30,6 +31,7 @@ public final class Telemetry implements HelloSupplier {
     private final EngineConnection conn;
     private final SampleBuffer buffer;
     private final ContextTracker ctx;
+    private final WorldMirror world;
     private final ServerCompat compat;
     private final Scheduler sched;
     private final ErrorGate gate;
@@ -51,9 +53,9 @@ public final class Telemetry implements HelloSupplier {
     private volatile int flushIntervalMs;
     private volatile CaptureWriter capture;
 
-    public Telemetry(EngineConnection conn, SampleBuffer buffer, ContextTracker ctx, ServerCompat compat, Scheduler sched, ErrorGate gate,
+    public Telemetry(EngineConnection conn, SampleBuffer buffer, ContextTracker ctx, WorldMirror world, ServerCompat compat, Scheduler sched, ErrorGate gate,
                      PluginConfig cfg, String pluginVersion, boolean onlineMode, Logger log) {
-        this.conn = conn; this.buffer = buffer; this.ctx = ctx; this.compat = compat; this.sched = sched; this.gate = gate;
+        this.conn = conn; this.buffer = buffer; this.ctx = ctx; this.world = world; this.compat = compat; this.sched = sched; this.gate = gate;
         this.pluginVersion = pluginVersion; this.onlineMode = onlineMode; this.log = log;
         this.flushIntervalMs = clampFlush(cfg.flushIntervalMs);
     }
@@ -75,6 +77,7 @@ public final class Telemetry implements HelloSupplier {
         stopCapture();
         sched.cancel(tickTask);
         ctx.stopAll();
+        world.clear();
         roster.clear(); players.clear(); moved.clear(); buffer.clear();
     }
 
@@ -150,8 +153,20 @@ public final class Telemetry implements HelloSupplier {
 
     private void flush() {
         Batch b = buffer.drain(System.currentTimeMillis());
-        if (b == null) return;
-        if (!send(UpStream.newBuilder().setBatch(b).build())) buffer.clear();
+        if (b != null && !send(UpStream.newBuilder().setBatch(b).build())) buffer.clear();
+        flushWorld();
+    }
+
+    /**
+     * Packages whatever the world sampler has produced. Runs on the flush worker,
+     * never on a server thread: the sections were already decoded off-thread and
+     * this only serializes and writes them.
+     */
+    private void flushWorld() {
+        if (!world.hasWork()) return;
+        for (UpStream u : world.drain(System.currentTimeMillis(), tick.get(), 0)) {
+            if (!send(u)) break;
+        }
     }
 
     private void heartbeat() {
@@ -220,9 +235,11 @@ public final class Telemetry implements HelloSupplier {
             if (ms != flushIntervalMs) { flushIntervalMs = ms; scheduleFlush(); log.info("Thorium: flush interval now " + ms + " ms"); }
         }
         buffer.setEnabledCategories(policy.getEnabledCategoriesList());
+        world.setPolicy(policy.getWorld());
     }
 
-    public void onDisconnected() { buffer.clear(); }
+    /** Arms a fresh world sync: whatever the engine held is gone with the connection. */
+    public void onDisconnected() { buffer.clear(); world.reset(); }
 
     @Override
     public Hello buildHello() {
@@ -235,6 +252,10 @@ public final class Telemetry implements HelloSupplier {
     public String statusLine() {
         CaptureWriter c = capture;
         return "queue " + buffer.pending() + ", dropped " + buffer.dropped() + ", flush " + flushIntervalMs + " ms, " + roster.size() + " players, tick " + tick.get()
+                + ", ctx " + ctx.contextNanos() + " ns over " + ctx.contextCount()
+                + (world.enabled() ? ", world " + world.heldSections() + " sections, " + world.snapshotMicros() + " us/snapshot over " + world.snapshotCount()
+                    + (ac.thorium.mc.plugin.world.SnapshotReader.emptyFastPathEnabled() ? ", empty-skip on" : ", empty-skip off")
+                    + (world.syncing() ? " (syncing, " + world.pendingColumnCount() + " columns left)" : "") : "")
                 + (c == null ? "" : ", capturing " + c.file().getName() + " (" + c.frames() + " frames)");
     }
 }

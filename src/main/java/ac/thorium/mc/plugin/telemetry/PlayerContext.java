@@ -6,6 +6,7 @@ public final class PlayerContext {
 
     public final int gamemode;
     public final String dimension;
+    public final String world;
     public final int pingMs;
     public final double tps;
     public final boolean inVehicle, gliding, riptiding, inWater, inLava, onIce, onLadder, inWeb, onSlime, onSoulSand,
@@ -17,7 +18,7 @@ public final class PlayerContext {
     public final long tick;
 
     private PlayerContext(Builder b) {
-        gamemode = b.gamemode; dimension = b.dimension; pingMs = b.pingMs; tps = b.tps;
+        gamemode = b.gamemode; dimension = b.dimension; world = b.world; pingMs = b.pingMs; tps = b.tps;
         inVehicle = b.inVehicle; gliding = b.gliding; riptiding = b.riptiding; inWater = b.inWater; inLava = b.inLava; onIce = b.onIce;
         onLadder = b.onLadder; inWeb = b.inWeb; onSlime = b.onSlime; onSoulSand = b.onSoulSand; blockBelowSolid = b.blockBelowSolid;
         blockAboveSolid = b.blockAboveSolid; blockBelowLiquid = b.blockBelowLiquid; levitation = b.levitation; slowFalling = b.slowFalling; flyingAllowed = b.flyingAllowed;
@@ -29,7 +30,7 @@ public final class PlayerContext {
     public static Builder builder() { return new Builder(); }
 
     public static final class Builder {
-        private int gamemode; private String dimension = ""; private int pingMs; private double tps = 20.0;
+        private int gamemode; private String dimension = ""; private String world = ""; private int pingMs; private double tps = 20.0;
         private boolean inVehicle, gliding, riptiding, inWater, inLava, onIce, onLadder, inWeb, onSlime, onSoulSand,
                 blockBelowSolid, blockAboveSolid, blockBelowLiquid, levitation, slowFalling, flyingAllowed, isFlying, hasElytra, frostWalker, dead, sleeping,
                 nearWall, pushableNearby;
@@ -37,6 +38,7 @@ public final class PlayerContext {
 
         public Builder gamemode(int v) { gamemode = v; return this; }
         public Builder dimension(String v) { dimension = v == null ? "" : v; return this; }
+        public Builder world(String v) { world = v == null ? "" : v; return this; }
         public Builder pingMs(int v) { pingMs = v; return this; }
         public Builder tps(double v) { tps = v; return this; }
         public Builder inVehicle(boolean v) { inVehicle = v; return this; }

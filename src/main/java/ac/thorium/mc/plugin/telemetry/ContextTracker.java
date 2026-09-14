@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 
 /** Refreshes an immutable PlayerContext for every tracked player once per tick on the player's owning thread. */
@@ -36,11 +37,16 @@ public final class ContextTracker {
     private final ServerCompat compat;
     private final ErrorGate gate;
     private final LongSupplier tick;
+    /** True while the engine mirrors the world and derives the block flags itself. */
+    private final BooleanSupplier worldStreamed;
     private final Map<UUID, PlayerContext> contexts = new ConcurrentHashMap<>();
+    /** Server-thread nanos spent building contexts, and how many were built. */
+    private final java.util.concurrent.atomic.AtomicLong snapNanos = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong snapCount = new java.util.concurrent.atomic.AtomicLong();
     private final Map<UUID, Object> tasks = new ConcurrentHashMap<>();
 
-    public ContextTracker(Scheduler sched, ServerCompat compat, ErrorGate gate, LongSupplier tick) {
-        this.sched = sched; this.compat = compat; this.gate = gate; this.tick = tick;
+    public ContextTracker(Scheduler sched, ServerCompat compat, ErrorGate gate, LongSupplier tick, BooleanSupplier worldStreamed) {
+        this.sched = sched; this.compat = compat; this.gate = gate; this.tick = tick; this.worldStreamed = worldStreamed;
     }
 
     public void start(Player p) {
@@ -49,7 +55,11 @@ public final class ContextTracker {
         contexts.put(id, PlayerContext.UNKNOWN);
         Object handle = sched.runPlayerTimer(p, () -> gate.run("context", () -> {
             if (!p.isOnline()) { stop(p); return; }
-            contexts.put(id, snapshot(p));
+            long t0 = System.nanoTime();
+            PlayerContext ctx = snapshot(p);
+            snapNanos.addAndGet(System.nanoTime() - t0);
+            snapCount.incrementAndGet();
+            contexts.put(id, ctx);
         }), 1, 1);
         if (handle != null) tasks.put(id, handle);
     }
@@ -69,12 +79,32 @@ public final class ContextTracker {
 
     public PlayerContext get(UUID uuid) { PlayerContext c = contexts.get(uuid); return c == null ? PlayerContext.UNKNOWN : c; }
 
+    /** Mean nanoseconds of server-thread time per context refresh; 0 if none yet. */
+    public long contextNanos() {
+        long n = snapCount.get();
+        return n == 0 ? 0 : snapNanos.get() / n;
+    }
+
+    public long contextCount() { return snapCount.get(); }
+
+    /** A living entity or vehicle close enough to push the player client-side. */
+    private static boolean pushableNearby(Player p) {
+        try {
+            for (Entity e : p.getNearbyEntities(0.9, 1.2, 0.9)) {
+                if (e instanceof LivingEntity || e instanceof Vehicle) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     /** Bukkit reads; must run on the player's thread. */
     public PlayerContext snapshot(Player p) {
         PlayerContext.Builder b = PlayerContext.builder();
         Location loc = p.getLocation();
         b.tick(tick.getAsLong()).x(loc.getX()).y(loc.getY()).z(loc.getZ()).yaw(loc.getYaw()).pitch(loc.getPitch());
         b.gamemode(Names.gamemode(p.getGameMode().name())).dimension(Names.dimension(p.getWorld().getEnvironment().name()));
+        // The mirror keys sections by world name, so the engine needs it to look the player up.
+        b.world(p.getWorld().getName());
         b.pingMs(compat.ping(p)).tps(compat.tps());
         b.inVehicle(p.isInsideVehicle()).flyingAllowed(p.getAllowFlight()).isFlying(p.isFlying()).dead(p.isDead()).sleeping(p.isSleeping());
         b.gliding(Reflect.bool(IS_GLIDING, p, false)).riptiding(Reflect.bool(IS_RIPTIDING, p, false));
@@ -91,6 +121,13 @@ public final class ContextTracker {
         b.hasElytra(chest != null && chest.getType() != null && "ELYTRA".equals(chest.getType().name()));
         ItemStack boots = p.getInventory().getBoots();
         b.frostWalker(FROST_WALKER != null && boots != null && boots.containsEnchantment(FROST_WALKER));
+
+        if (worldStreamed.getAsBoolean()) {
+            // The engine has the blocks; every flag below is derived there instead.
+            // Only the entity probe stays, since no block can answer it.
+            b.pushableNearby(pushableNearby(p));
+            return b.build();
+        }
 
         Block feet = loc.getBlock();
         Block head = feet.getRelative(0, 1, 0);
@@ -122,13 +159,7 @@ public final class ContextTracker {
             wall = loc.getWorld().getBlockAt(bx, fy, bz).getType().isSolid() || loc.getWorld().getBlockAt(bx, fy + 1, bz).getType().isSolid();
         }
         b.nearWall(wall);
-        boolean pushable = false;
-        try {
-            for (Entity e : p.getNearbyEntities(0.9, 1.2, 0.9)) {
-                if (e instanceof LivingEntity || e instanceof Vehicle) { pushable = true; break; }
-            }
-        } catch (Throwable ignored) {}
-        b.pushableNearby(pushable);
+        b.pushableNearby(pushableNearby(p));
         return b.build();
     }
 }

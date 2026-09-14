@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "ac.thorium"
-version = "0.1.0"
+version = "0.2.0"
 
 val protobufVersion = "4.36.1"
 val packetEventsVersion = "2.13.0"

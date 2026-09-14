@@ -67,4 +67,9 @@ message ServerMeta {
   bool block_below_liquid = 32;  // water/lava directly under the feet (walking on liquid = Jesus)
   bool near_wall = 33;           // a solid block within reach of the hitbox at feet or head height (movement may be clipped)
   bool pushable_nearby = 34;     // a living entity or vehicle close enough to push the player client-side
+
+  // The Bukkit world name, which is what the block mirror keys sections by.
+  // `dimension` is the environment (overworld/nether/end) and several worlds can
+  // share one, so it cannot address the mirror on its own.
+  string world = 35;
 }
