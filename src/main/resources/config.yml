@@ -1,0 +1,23 @@
+# Thorium Minecraft plugin configuration.
+# Gateway base URL (https). The plugin authenticates with server-token and
+# opens a WebSocket at <gateway-url>/api/anticheat/ws.
+gateway-url: "https://gateway.thorium.ac"
+# Server token from the Thorium dashboard (Servers -> your server -> Token).
+server-token: ""
+# Milliseconds between telemetry flushes. The engine may override this.
+flush-interval-ms: 75
+# false = log verdicts only (never kick/ban/warn), staff alerts still shown.
+enforce: true
+# Empty = use the Bukkit ban list. Otherwise run this console command on BAN,
+# e.g. "ban %player% %reason%" for LiteBans/AdvancedBan.
+ban-command: ""
+# Send player IPs in join events (only if your org allows it).
+send-ip: false
+# Message formats. & colour codes. Placeholders: %player% %check% %vl% %confidence% %reason% %action%
+alert-format: "&8[&cThorium&8] &f%player% &7failed &e%check% &7(VL %vl%, %confidence%%)"
+warn-format: "&c[Thorium] &fSuspicious activity detected (%check%). This is a warning."
+kick-format: "&cKicked by Thorium anti-cheat\n&7%reason%"
+# Development only. When set, skips gateway auth and connects to gateway-url
+# with this value as the session token (pairs with the engine's STATIC_SESSIONS).
+dev:
+  session-token: ""

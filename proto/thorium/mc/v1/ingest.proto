@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option go_package = "github.com/ThoriumAC/Thorium-Minecraft/internal/proto/thorium/mc/v1;mcv1";
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+import "thorium/mc/v1/common.proto";
+import "thorium/mc/v1/packets.proto";
+import "thorium/mc/v1/verdict.proto";
+
+// Every WebSocket binary frame from the plugin is exactly one UpStream.
+message UpStream {
+  oneof msg {
+    Hello hello = 1;
+    Batch batch = 2;
+    Heartbeat heartbeat = 3;
+    PlayerEvent player_event = 4;
+  }
+}
+
+// Every WebSocket binary frame from the engine is exactly one DownStream.
+// Frames whose first byte is < 0x08 are gateway control frames, not DownStream.
+message DownStream {
+  oneof msg {
+    HelloAck hello_ack = 1;
+    Verdict verdict = 2;
+    Control control = 3;
+  }
+}
+
+message Hello {
+  string plugin_version = 1;
+  string mc_version = 2;
+  ServerSoftware software = 3;
+  uint32 protocol = 4;              // wire protocol version, currently 1
+  repeated PlayerRef roster = 5;    // players online at connect time
+}
+
+message HelloAck {
+  bool accepted = 1;
+  string reject_reason = 2;
+  bytes server_id = 3;
+  bytes organization_id = 4;
+  IngestPolicy policy = 5;
+}
+
+message Batch {
+  int64 sent_at_ms = 1;
+  repeated PlayerBatch players = 2;
+}
+
+message PlayerBatch {
+  PlayerRef player = 1;
+  repeated Sample samples = 2;
+}
+
+message Heartbeat {
+  int64 client_time_ms = 1;
+  int32 online_players = 2;
+  double tps = 3;
+  double mspt = 4;
+}
+
+message PlayerEvent {
+  PlayerRef player = 1;
+  int64 client_time_ms = 2;
+  int64 tick = 3;
+  oneof kind {
+    Join join = 10;
+    Quit quit = 11;
+    Teleport teleport = 12;
+    Velocity velocity = 13;
+    Damage damage = 14;
+    GamemodeChange gamemode = 15;
+    WorldChange world = 16;
+    Respawn respawn = 17;
+  }
+}
+
+message Join {
+  string ip = 1;                 // empty unless the org allows IPs
+  int32 protocol_version = 2;
+  string brand = 3;
+  int32 gamemode = 4;
+}
+message Quit { string reason = 1; }
+message Teleport { Vec3 to = 1; Look look = 2; string cause = 3; }
+message Velocity { Vec3 velocity = 1; }
+message Damage { string cause = 1; double amount = 2; double fall_distance = 3; }
+message GamemodeChange { int32 gamemode = 1; }
+message WorldChange { string dimension = 1; }
+message Respawn {}
+
+message Control {
+  oneof kind {
+    IngestPolicy policy = 1;
+    Disconnect disconnect = 2;
+    PluginUpdate update = 3;
+    Resync resync = 4;
+  }
+}
+
+message IngestPolicy {
+  int32 flush_interval_ms = 1;
+  repeated string enabled_categories = 2;  // movement, combat, block, inventory, client
+}
+message Disconnect { string reason = 1; bool reconnect = 2; int32 backoff_ms = 3; }
+message PluginUpdate { string version = 1; string download_url = 2; string sha256 = 3; }
+message Resync {}

@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option go_package = "github.com/ThoriumAC/Thorium-Minecraft/internal/proto/thorium/mc/v1;mcv1";
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+// A Minecraft player identity. uuid is the 16 raw bytes of the Mojang/offline UUID.
+message PlayerRef {
+  bytes uuid = 1;
+  string username = 2;
+  bool cracked = 3;
+}
+
+message Vec3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message Look {
+  float yaw = 1;
+  float pitch = 2;
+}
+
+enum ServerSoftware {
+  SERVER_SOFTWARE_UNSPECIFIED = 0;
+  SERVER_SOFTWARE_PAPER = 1;
+  SERVER_SOFTWARE_SPIGOT = 2;
+  SERVER_SOFTWARE_FOLIA = 3;
+  SERVER_SOFTWARE_BUKKIT = 4;
+  SERVER_SOFTWARE_OTHER = 5;
+}
+
+// Server-side truth attached to every sample. The cloud cannot infer these from
+// packets; they drive exemptions and latency compensation.
+message ServerMeta {
+  int32 gamemode = 1;          // 0 survival, 1 creative, 2 adventure, 3 spectator
+  string dimension = 2;
+  int32 ping_ms = 3;
+  double tps = 4;
+  bool server_moved = 5;       // first sample after teleport/velocity/knockback
+
+  bool in_vehicle = 10;
+  bool gliding = 11;
+  bool riptiding = 12;
+  bool in_water = 13;
+  bool in_lava = 14;
+  bool on_ice = 15;
+  bool on_ladder = 16;
+  bool in_web = 17;
+  bool on_slime = 18;
+  bool on_soul_sand = 19;
+  bool block_below_solid = 20;
+  bool block_above_solid = 21;
+  bool levitation = 22;
+  bool slow_falling = 23;
+  int32 speed_amplifier = 24;  // 0 = none, 1 = Speed I, ...
+  int32 jump_amplifier = 25;
+  bool flying_allowed = 26;
+  bool is_flying = 27;
+  bool has_elytra = 28;
+  bool frost_walker = 29;
+  bool dead = 30;
+  bool sleeping = 31;
+  bool block_below_liquid = 32;  // water/lava directly under the feet (walking on liquid = Jesus)
+  bool near_wall = 33;           // a solid block within reach of the hitbox at feet or head height (movement may be clipped)
+  bool pushable_nearby = 34;     // a living entity or vehicle close enough to push the player client-side
+}

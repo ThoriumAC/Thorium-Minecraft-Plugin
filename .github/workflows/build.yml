@@ -1,0 +1,46 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      # The plugin targets Java 8 bytecode (options.release 8) so it runs on
+      # older servers; the toolchain that builds it does not have to be Java 8.
+      - run: ./gradlew test shadowJar --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thorium-minecraft-jar
+          path: build/libs/thorium-minecraft-*.jar
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew shadowJar --no-daemon
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/thorium-minecraft-*.jar
+          generate_release_notes: true

@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option go_package = "github.com/ThoriumAC/Thorium-Minecraft/internal/proto/thorium/mc/v1;mcv1";
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+import "thorium/mc/v1/common.proto";
+
+enum Action {
+  ACTION_UNSPECIFIED = 0;
+  ACTION_FLAG = 1;   // record + staff notify, no player-visible effect
+  ACTION_WARN = 2;
+  ACTION_KICK = 3;
+  ACTION_BAN = 4;
+}
+
+// Engine decision streamed to the plugin.
+message Verdict {
+  PlayerRef player = 1;
+  Action action = 2;
+  string alert_type = 3;   // e.g. "MCSpeed"
+  string reason = 4;
+  double confidence = 5;
+  bool shadow = 6;         // Experimental mode: log only, do not enforce
+  int64 issued_at_ms = 7;
+  bytes alert_id = 8;      // anticheat.alerts.id when persisted
+  double vl = 9;
+}

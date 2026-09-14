@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option go_package = "github.com/ThoriumAC/Thorium-Minecraft/internal/proto/thorium/mc/v1;mcv1";
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+import "thorium/mc/v1/common.proto";
+
+message Sample {
+  int64 client_time_ms = 1;   // plugin wall clock at capture
+  int64 tick = 2;             // server tick at capture
+  ServerMeta meta = 3;
+
+  oneof kind {
+    MovementSample movement = 10;
+    CombatSample combat = 11;
+    BlockSample block = 12;
+    InventorySample inventory = 13;
+    RotationSample rotation = 14;
+    ClientSample client = 15;
+    TransactionSample transaction = 16;
+  }
+}
+
+// Transaction markers give the engine exact ordering between server-side state
+// changes and the client's movement stream. The plugin writes a ping right after a
+// knockback/explosion/teleport packet (SENT) and streams the client's echo (ACK) at
+// its position in the sample stream; PROBE pings measure round-trip time only.
+enum TransactionPhase {
+  TRANSACTION_PHASE_UNSPECIFIED = 0;
+  TRANSACTION_PHASE_SENT = 1;
+  TRANSACTION_PHASE_ACK = 2;
+}
+
+enum TransactionCause {
+  TRANSACTION_CAUSE_UNSPECIFIED = 0;
+  TRANSACTION_CAUSE_VELOCITY = 1;    // ENTITY_VELOCITY for the player's own entity
+  TRANSACTION_CAUSE_EXPLOSION = 2;   // EXPLOSION carrying player motion
+  TRANSACTION_CAUSE_TELEPORT = 3;    // PLAYER_POSITION_AND_LOOK; the ACK is the client's TELEPORT_CONFIRM
+  TRANSACTION_CAUSE_PROBE = 4;       // periodic latency probe
+}
+
+message TransactionSample {
+  int32 id = 1;
+  TransactionPhase phase = 2;
+  TransactionCause cause = 3;
+  int64 rtt_ms = 4;                  // ACK only: plugin-measured SENT→ACK round trip
+}
+
+message MovementSample {
+  Vec3 position = 1;
+  Look look = 2;
+  bool has_position = 3;
+  bool has_look = 4;
+  bool on_ground = 5;
+  bool sprinting = 6;
+  bool sneaking = 7;
+  bool horizontal_collision = 8;  // client reported bumping into a wall this tick (1.21.3+ only)
+}
+
+message RotationSample {
+  Look look = 1;
+  bool on_ground = 2;
+}
+
+enum CombatAction {
+  COMBAT_ACTION_UNSPECIFIED = 0;
+  COMBAT_ACTION_ATTACK = 1;
+  COMBAT_ACTION_SWING = 2;
+  COMBAT_ACTION_INTERACT = 3;
+}
+
+message CombatSample {
+  CombatAction action = 1;
+  int32 target_entity_id = 2;
+  PlayerRef target = 3;          // set when the target is a player
+  Vec3 attacker_position = 4;    // feet
+  Look attacker_look = 5;
+  Vec3 target_position = 6;      // server-side feet position at attack time
+  float target_width = 7;        // hitbox width (0.6 for players)
+  float target_height = 8;       // hitbox height (1.8 standing, 1.5 sneaking)
+  bool target_is_player = 9;
+}
+
+enum BlockAction {
+  BLOCK_ACTION_UNSPECIFIED = 0;
+  BLOCK_ACTION_DIG_START = 1;
+  BLOCK_ACTION_DIG_ABORT = 2;
+  BLOCK_ACTION_DIG_FINISH = 3;
+  BLOCK_ACTION_PLACE = 4;
+}
+
+message BlockSample {
+  BlockAction action = 1;
+  int32 x = 2;
+  int32 y = 3;
+  int32 z = 4;
+  int32 face = 5;
+  string block_id = 6;
+  Look look = 7;
+  Vec3 player_position = 8;
+  int32 expected_break_ticks = 9;  // server-computed on DIG_START
+  bool sneaking = 10;
+  bool sprinting = 11;
+}
+
+message InventorySample {
+  int32 window_id = 1;
+  int32 slot = 2;
+  int32 button = 3;
+  string action = 4;   // CLICK, DROP, SWAP, CLOSE
+}
+
+message ClientSample {
+  string brand = 1;
+  repeated string channels = 2;
+  int32 protocol_version = 3;
+}
