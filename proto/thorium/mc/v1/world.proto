@@ -36,6 +36,12 @@ message Section {
   repeated string palette = 2;
   uint32 bits_per_index = 3;  // 0 (uniform), 8, or 16
   bytes indices = 4;
+  // Biome at the section's centre, e.g. "minecraft:plains", or empty when the
+  // server cannot report one. Grass, foliage and water are greyscale textures
+  // the client tints by biome, so a viewer without this draws a swamp the same
+  // green as a plain. One name per section is coarse next to the client's
+  // per-block blend, and it costs a short string rather than 4096 of them.
+  string biome = 5;
 }
 
 // Sections streamed to the engine. The initial sync after a connection becomes

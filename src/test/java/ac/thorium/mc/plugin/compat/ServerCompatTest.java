@@ -4,6 +4,8 @@ import ac.thorium.mc.proto.ServerSoftware;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ServerCompatTest {
     @Test
@@ -31,5 +33,34 @@ class ServerCompatTest {
         for (int i = 0; i < 50; i++) ticks[i] = i * 100_000_000L;
         assertEquals(10.0, ServerCompat.tpsFromTicks(ticks, 50, 49 * 100_000_000L), 0.01);
         assertEquals(20.0, ServerCompat.tpsFromTicks(ticks, 1, 0), 0.01);
+    }
+
+    @Test
+    void proxiedPlayersAreNotCracked() {
+        // A backend behind Velocity or BungeeCord runs online-mode off by design
+        // — the proxy authenticated and forwards the result — while the UUIDs it
+        // receives are real. Reading online-mode alone marked every player on
+        // every proxied network as unauthenticated.
+        assertFalse(ServerCompat.cracked(false, "velocity-modern"));
+        assertFalse(ServerCompat.cracked(false, "bungeecord"));
+    }
+
+    @Test
+    void offlineWithoutAProxyIsCracked() {
+        assertTrue(ServerCompat.cracked(false, "none"));
+    }
+
+    @Test
+    void onlineModeSettlesItWhateverTheForwarding() {
+        for (String f : new String[] {"none", "bungeecord", "velocity-modern", "unknown"}) {
+            assertFalse(ServerCompat.cracked(true, f), f);
+        }
+    }
+
+    @Test
+    void unreadableForwardingFallsBackToOnlineMode() {
+        // Nothing to read means a server with no proxy support to speak of, and
+        // there online-mode alone is the honest answer.
+        assertTrue(ServerCompat.cracked(false, "unknown"));
     }
 }

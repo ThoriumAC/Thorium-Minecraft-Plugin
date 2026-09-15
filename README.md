@@ -8,6 +8,17 @@ decides; the plugin reports and, if you configure it to, enforces.
 This repository is public so you can read exactly what runs on your server
 before you install it.
 
+## Where the source lives
+
+This repository is the plugin. It used to be a copy of a directory inside the
+private engine repository, kept in step by hand, and that lasted exactly as long
+as anyone remembered: the two drifted, both called themselves 0.2.0, and the
+published jar was missing fixes the engine had already been told to expect.
+
+There is now one copy, here. The engine repository keeps the wire protocol in
+`proto/` and checks on every build that what is here still matches, because the
+two halves have to agree about the wire or nothing works.
+
 ## What it does, and what it does not
 
 It **does** capture, from packets the server has already accepted:

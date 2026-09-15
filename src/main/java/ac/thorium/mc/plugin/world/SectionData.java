@@ -155,12 +155,23 @@ public final class SectionData {
     }
 
     public Section toProto(SectionPos pos) {
-        return Section.newBuilder()
+        return toProto(pos, "");
+    }
+
+    /**
+     * @param biome name for the section's centre, or "" when the server has none.
+     *              It rides along with the blocks rather than in the content hash:
+     *              a biome cannot change under a section that is otherwise
+     *              unchanged, so hashing it would only cost re-sends.
+     */
+    public Section toProto(SectionPos pos, String biome) {
+        Section.Builder b = Section.newBuilder()
                 .setPos(pos)
                 .addAllPalette(palette)
                 .setBitsPerIndex(bitsPerIndex)
-                .setIndices(ByteString.copyFrom(indices))
-                .build();
+                .setIndices(ByteString.copyFrom(indices));
+        if (biome != null && !biome.isEmpty()) b.setBiome(biome);
+        return b.build();
     }
 
     /** Rough encoded size, for the sampler's per-frame byte budget. */

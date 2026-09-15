@@ -46,6 +46,14 @@ public final class SnapshotReader {
     private static final Method MATERIAL_BY_ID = Reflect.method(Material.class, "getMaterial", int.class);
     private static final Method WORLD_MIN_HEIGHT = Reflect.method(World.class, "getMinHeight");
     private static final Method BLOCK_GET_BLOCK_DATA = Reflect.method(Block.class, "getBlockData");
+    // Biomes moved twice: getBiome(x, z) on 1.8, getBiome(x, y, z) once biomes
+    // became three-dimensional in 1.15, and the return went from an enum to a
+    // registry-keyed object in 1.19. Name resolution below handles all three.
+    private static final Method SNAP_BIOME_XYZ =
+            Reflect.method(ChunkSnapshot.class, "getBiome", int.class, int.class, int.class);
+    private static final Method SNAP_BIOME_XZ =
+            Reflect.method(ChunkSnapshot.class, "getBiome", int.class, int.class);
+    private static final Method BIOME_GET_KEY = Reflect.method("org.bukkit.block.Biome", "getKey");
 
     /** True on 1.13+, where getBlockData yields a BlockData rather than a data value. */
     private static final boolean MODERN =
@@ -90,7 +98,73 @@ public final class SnapshotReader {
 
     public static boolean modern() { return MODERN; }
 
+    /**
+     * The biome name at a section-local column, e.g. "minecraft:plains", or "" when
+     * the server will not say.
+     *
+     * Only called once per section rather than per block: the viewer tints grass
+     * and water with it, and one name for a 16-block cube is close enough for
+     * that while costing a short string instead of 4096 of them.
+     */
+    public static String biomeAt(ChunkSnapshot snap, int x, int y, int z) {
+        Object biome = null;
+        try {
+            if (SNAP_BIOME_XYZ != null) {
+                biome = SNAP_BIOME_XYZ.invoke(snap, x, y, z);
+            } else if (SNAP_BIOME_XZ != null) {
+                biome = SNAP_BIOME_XZ.invoke(snap, x, z);
+            }
+        } catch (Throwable t) {
+            return "";
+        }
+        return biomeName(biome);
+    }
+
+    /** NamespacedKey when the server has one, else the enum name lower-cased. */
+    static String biomeName(Object biome) {
+        if (biome == null) return "";
+        if (BIOME_GET_KEY != null) {
+            try {
+                Object key = BIOME_GET_KEY.invoke(biome);
+                if (key != null) return key.toString();
+            } catch (Throwable ignored) {
+                // Fall through to the enum name.
+            }
+        }
+        String name = biome.toString();
+        return name.isEmpty() ? "" : "minecraft:" + name.toLowerCase(java.util.Locale.ROOT);
+    }
+
     public static boolean emptyFastPathEnabled() { return emptyFastPath == 1; }
+
+    /**
+     * Which reflection branch each version-adaptive lookup resolved to.
+     *
+     * <p>Every one of these fails silently. A null handle does not throw; it
+     * makes the mirror return air, or the biome an empty string, and the engine
+     * then judges a player standing on ground it believes is not there. On a
+     * server version nobody has run before, this is the difference between
+     * "world streaming is off" and "world streaming is broken here".
+     */
+    public static java.util.List<String> branches() {
+        java.util.List<String> l = new ArrayList<String>();
+        l.add("block-states: " + (MODERN ? "1.13+ BlockData.getAsString"
+                : SNAP_BLOCK_TYPE_ID != null ? "legacy MATERIAL:data"
+                : "NONE — the mirror cannot read blocks on this server"));
+        l.add("block-handle: " + (BLOCK_AT != null ? "MethodHandle" : TYPE_ID_AT != null ? "MethodHandle (legacy ids)" : "none"));
+        l.add("biome: " + (SNAP_BIOME_XYZ != null ? "getBiome(x,y,z)"
+                : SNAP_BIOME_XZ != null ? "getBiome(x,z)"
+                : "unavailable — sections stream without a biome"));
+        l.add("biome-name: " + (BIOME_GET_KEY != null ? "NamespacedKey.getKey()" : "enum name"));
+        l.add("min-height: " + (WORLD_MIN_HEIGHT != null ? "World.getMinHeight()" : "assumed 0 (pre-1.18)"));
+        l.add("empty-section: " + (SNAP_SECTION_EMPTY == null ? "absent"
+                : emptyFastPath == 1 ? "trusted" : emptyFastPath == -1 ? "rejected" : "not yet calibrated"));
+        l.add("live-block: " + (BLOCK_GET_BLOCK_DATA != null ? "Block.getBlockData()" : "legacy id+data"));
+        return l;
+    }
+
+    /** True when nothing can be read out of a snapshot at all — the mirror would stream air. */
+    public static boolean readable() { return BLOCK_AT != null || TYPE_ID_AT != null; }
 
     /** Lowest block y in the world: -64 on 1.18+, 0 before {@code getMinHeight} existed. */
     public static int minHeight(World w) {

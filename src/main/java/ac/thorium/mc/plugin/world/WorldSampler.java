@@ -60,6 +60,14 @@ public final class WorldSampler {
     private Object tickTask;
     private long ticks;
     private ThreadPoolExecutor decoders;
+
+    /**
+     * Biome per column, read once and kept: worldgen fixes it, and asking for it
+     * again means another biome copy inside getChunkSnapshot on the server thread.
+     * Bounded by the same reach as the mirror itself; cleared with it.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, String> biomeByColumn =
+            new java.util.concurrent.ConcurrentHashMap<String, String>();
     private volatile boolean calibrated;
 
     public WorldSampler(WorldMirror mirror, Scheduler sched, ErrorGate gate, Server server) {
@@ -86,6 +94,7 @@ public final class WorldSampler {
         tickTask = null;
         if (decoders != null) decoders.shutdownNow();
         decoders = null;
+        biomeByColumn.clear();
     }
 
     private void tick() {
@@ -151,28 +160,49 @@ public final class WorldSampler {
         if (want.isEmpty()) return;
         final int minSy = SnapshotReader.minSectionY(w);
         final int maxSy = SnapshotReader.maxSectionY(w);
+        final String columnKey = c.dimension + ":" + c.x + "," + c.z;
+        // Copying biomes costs main-thread time in getChunkSnapshot, and a column's
+        // biome does not change. Ask for it the first time the column is read and
+        // reuse the answer on every later sweep.
+        final boolean needBiome = !biomeByColumn.containsKey(columnKey);
         sched.runForChunk(w, c.x, c.z, () -> gate.run("world:snapshot", () -> {
             if (!w.isChunkLoaded(c.x, c.z)) return;
             // Stamp before the read so anything that changes while the decode is in
             // flight is still treated as newer than the snapshot.
             final long token = mirror.snapshotToken();
             final long t0 = System.nanoTime();
-            final ChunkSnapshot snap = w.getChunkAt(c.x, c.z).getChunkSnapshot(false, false, false);
+            // (maxBlockY, biome, biomeTempRain). A snapshot taken without biomes
+            // throws on getBiome rather than returning a default, so the flag and
+            // the read below have to agree.
+            final ChunkSnapshot snap = w.getChunkAt(c.x, c.z).getChunkSnapshot(false, needBiome, false);
             mirror.recordSnapshot(System.nanoTime() - t0);
             ThreadPoolExecutor ex = decoders;
-            if (ex != null) ex.execute(() -> gate.run("world:decode", () -> decode(snap, want, token, minSy, maxSy)));
+            if (ex != null) {
+                ex.execute(() -> gate.run("world:decode",
+                        () -> decode(snap, want, token, minSy, maxSy, columnKey, needBiome)));
+            }
         }));
     }
 
-    private void decode(ChunkSnapshot snap, List<SectionPos> want, long token, int minSy, int maxSy) {
+    private void decode(ChunkSnapshot snap, List<SectionPos> want, long token, int minSy, int maxSy,
+                        String columnKey, boolean readBiome) {
         if (!calibrated) {
             calibrated = true;
             SnapshotReader.calibrate(snap, minSy, maxSy);
         }
+        // One read per column rather than per section: a 16-block cube is already
+        // coarser than the client's per-block blend, and the viewer only needs it
+        // to tell a swamp from a plain.
+        String biome = biomeByColumn.get(columnKey);
+        if (readBiome) {
+            biome = SnapshotReader.biomeAt(snap, 8, 64, 8);
+            biomeByColumn.put(columnKey, biome == null ? "" : biome);
+        }
+        if (biome == null) biome = "";
         for (SectionPos p : want) {
             SectionData d = SnapshotReader.readSection(snap, p.getY(), minSy, maxSy);
             if (d == null) continue;
-            mirror.acceptSection(p, d, token);
+            mirror.acceptSection(p, d, token, biome);
         }
     }
 

@@ -267,6 +267,11 @@ public final class WorldMirror {
      * @return true if the section was queued for sending
      */
     public synchronized boolean acceptSection(SectionPos pos, SectionData data, long token) {
+        return acceptSection(pos, data, token, "");
+    }
+
+    /** @param biome name for the section's centre, passed straight through. */
+    public synchronized boolean acceptSection(SectionPos pos, SectionData data, long token, String biome) {
         if (!enabled || !wanted.contains(pos)) return false;
         Held prev = held.get(pos);
         long h = data.contentHash();
@@ -288,7 +293,7 @@ public final class WorldMirror {
         } else {
             held.put(pos, new Held(h, tickNow));
         }
-        outbox.put(pos, data.toProto(pos));
+        outbox.put(pos, data.toProto(pos, biome));
         return true;
     }
 
