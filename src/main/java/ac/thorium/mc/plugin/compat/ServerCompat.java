@@ -54,6 +54,76 @@ public final class ServerCompat {
     public ServerSoftware software() { return software; }
     public String mcVersion() { return mcVersion; }
 
+    /**
+     * How this server receives player identity: "none", "bungeecord" (the legacy
+     * proxy handshake, which Velocity can also speak), "velocity-modern", or
+     * "unknown" when neither switch can be read.
+     *
+     * <p>Worth reporting because a backend behind any proxy runs with
+     * online-mode off while its players still carry real Mojang UUIDs. Anything
+     * that reads online-mode as "these accounts are unauthenticated" is wrong on
+     * every proxied network, which is most of them.
+     */
+    public String proxyForwarding() {
+        Boolean bungee = staticBool("org.spigotmc.SpigotConfig", "bungee");
+        Boolean velocity = velocityEnabled();
+        if (velocity != null && velocity.booleanValue()) return "velocity-modern";
+        if (bungee != null && bungee.booleanValue()) return "bungeecord";
+        if (bungee == null && velocity == null) return "unknown";
+        return "none";
+    }
+
+    /**
+     * Whether this server's players should be reported as unauthenticated.
+     *
+     * <p>Not simply the inverse of online-mode. A backend behind Velocity or
+     * BungeeCord runs with online-mode off by design — the proxy did the
+     * authentication and forwards the result — while the UUIDs it receives are
+     * real Mojang UUIDs. Reading online-mode alone marks every player on every
+     * proxied network as cracked, which is most networks.
+     *
+     * <p>When neither forwarding switch can be read we are on something that has
+     * no proxy support to speak of, and online-mode alone is the honest answer.
+     */
+    public static boolean cracked(boolean onlineMode, String forwarding) {
+        if (onlineMode) return false;
+        return "none".equals(forwarding) || "unknown".equals(forwarding);
+    }
+
+    /** {@link #cracked(boolean, String)} for this server. */
+    public boolean cracked(boolean onlineMode) { return cracked(onlineMode, proxyForwarding()); }
+
+    /**
+     * Paper's Velocity switch, which has lived in two places: a static field on
+     * the old PaperConfig, and a nested record reached through
+     * GlobalConfiguration.get() since the 1.19 config rewrite.
+     */
+    private static Boolean velocityEnabled() {
+        Boolean old = staticBool("com.destroystokyo.paper.PaperConfig", "velocitySupport");
+        if (old != null) return old;
+        try {
+            Class<?> global = Class.forName("io.papermc.paper.configuration.GlobalConfiguration");
+            Object cfg = global.getMethod("get").invoke(null);
+            if (cfg == null) return null;
+            Object proxies = cfg.getClass().getField("proxies").get(cfg);
+            Object vel = proxies.getClass().getField("velocity").get(proxies);
+            Object enabled = vel.getClass().getField("enabled").get(vel);
+            return enabled instanceof Boolean ? (Boolean) enabled : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** A public static boolean field, or null when the class or field is absent. */
+    private static Boolean staticBool(String className, String field) {
+        try {
+            Object v = Class.forName(className).getField(field).get(null);
+            return v instanceof Boolean ? (Boolean) v : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     public static ServerSoftware detectSoftware(boolean folia, boolean paper, boolean spigot, boolean bukkit) {
         if (folia) return ServerSoftware.SERVER_SOFTWARE_FOLIA;
         if (paper) return ServerSoftware.SERVER_SOFTWARE_PAPER;

@@ -22,7 +22,7 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
     public static List<String> complete(String partial, boolean admin, boolean alerts) {
         List<String> out = new ArrayList<>();
         if (alerts) out.add("alerts");
-        if (admin) { out.add("capture"); out.add("reconnect"); out.add("status"); }
+        if (admin) { out.add("capture"); out.add("compat"); out.add("reconnect"); out.add("status"); }
         List<String> filtered = new ArrayList<>();
         for (String s : out) if (s.startsWith(partial.toLowerCase(Locale.ROOT))) filtered.add(s);
         Collections.sort(filtered);
@@ -40,6 +40,40 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
         return l;
     }
 
+    /**
+     * The lines /thorium compat prints.
+     *
+     * <p>Every version-adaptive lookup in the plugin fails silently: a missing
+     * method yields a null handle, the mirror streams air or a blank biome, and
+     * the engine goes on judging players against ground it cannot see. On a
+     * server version nobody has run the plugin against, this is the difference
+     * between "world streaming is off" and "world streaming is broken here",
+     * and the compatibility harness reads it to say which.
+     *
+     * <p>Static and parameterised so it can be asserted without a server.
+     */
+    public static List<String> compatLines(String version, String software, String mcVersion, boolean folia,
+                                           String javaVersion, boolean onlineMode, String proxyForwarding,
+                                           boolean worldEnabled, int heldSections, List<String> branches) {
+        List<String> l = new ArrayList<>();
+        l.add("§8[§cThorium§8] §fcompat report §7— plugin " + version);
+        l.add("§7server: §f" + software + " " + mcVersion + (folia ? " §7(regionised)" : "") + " §7on Java §f" + javaVersion);
+        // A backend behind any proxy runs online-mode off while its players keep
+        // real Mojang UUIDs, so these two belong on the same line: neither means
+        // anything without the other.
+        // The conclusion belongs on the line too. online-mode off with forwarding
+        // active is a normal, fully authenticated network, and reading the two
+        // switches without the verdict is how that got mistaken for cracked.
+        l.add("§7identity: §fonline-mode " + (onlineMode ? "on" : "off") + ", forwarding " + proxyForwarding
+                + " §7-> players "
+                + (ac.thorium.mc.plugin.compat.ServerCompat.cracked(onlineMode, proxyForwarding) ? "cracked" : "authenticated"));
+        l.add(worldEnabled
+                ? "§7world: §fstreaming, " + heldSections + " sections held"
+                : "§7world: §foff §7(the engine has not asked for terrain)");
+        for (String b : branches) l.add("§7  " + b);
+        return l;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         String sub = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
@@ -50,6 +84,18 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
                 for (String line : statusLines(plugin.getDescription().getVersion(), plugin.compat().software().name().replace("SERVER_SOFTWARE_", ""),
                         plugin.compat().mcVersion(), plugin.scheduler().isFolia(), configured,
                         configured ? plugin.connection().statusLine() : "", configured ? plugin.telemetry().statusLine() : "", plugin.config().enforce)) {
+                    sender.sendMessage(line);
+                }
+                return true;
+            }
+            case "compat": {
+                if (!sender.hasPermission(ADMIN)) { sender.sendMessage("§cNo permission."); return true; }
+                for (String line : compatLines(plugin.getDescription().getVersion(),
+                        plugin.compat().software().name().replace("SERVER_SOFTWARE_", ""), plugin.compat().mcVersion(),
+                        plugin.scheduler().isFolia(), System.getProperty("java.version", "?"),
+                        plugin.getServer().getOnlineMode(), plugin.compat().proxyForwarding(),
+                        plugin.world().enabled(), plugin.world().heldSections(),
+                        ac.thorium.mc.plugin.world.SnapshotReader.branches())) {
                     sender.sendMessage(line);
                 }
                 return true;
@@ -81,7 +127,7 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage("§7Thorium: reconnecting…");
                 return true;
             default:
-                sender.sendMessage("§7Usage: /thorium <status|alerts|reconnect|capture <label>|capture stop>");
+                sender.sendMessage("§7Usage: /thorium <status|compat|alerts|reconnect|capture <label>|capture stop>");
                 return true;
         }
     }

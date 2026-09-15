@@ -36,7 +36,12 @@ public final class Telemetry implements HelloSupplier {
     private final Scheduler sched;
     private final ErrorGate gate;
     private final String pluginVersion;
-    private final boolean onlineMode;
+    /**
+     * Whether players here are unauthenticated. Computed once at construction
+     * from online-mode *and* proxy forwarding: a backend behind a proxy runs
+     * online-mode off while its players still carry real Mojang UUIDs.
+     */
+    private final boolean cracked;
     private final Logger log;
 
     private final Map<UUID, PlayerRef> roster = new ConcurrentHashMap<>();
@@ -54,9 +59,9 @@ public final class Telemetry implements HelloSupplier {
     private volatile CaptureWriter capture;
 
     public Telemetry(EngineConnection conn, SampleBuffer buffer, ContextTracker ctx, WorldMirror world, ServerCompat compat, Scheduler sched, ErrorGate gate,
-                     PluginConfig cfg, String pluginVersion, boolean onlineMode, Logger log) {
+                     PluginConfig cfg, String pluginVersion, boolean cracked, Logger log) {
         this.conn = conn; this.buffer = buffer; this.ctx = ctx; this.world = world; this.compat = compat; this.sched = sched; this.gate = gate;
-        this.pluginVersion = pluginVersion; this.onlineMode = onlineMode; this.log = log;
+        this.pluginVersion = pluginVersion; this.cracked = cracked; this.log = log;
         this.flushIntervalMs = clampFlush(cfg.flushIntervalMs);
     }
 
@@ -180,6 +185,11 @@ public final class Telemetry implements HelloSupplier {
         CaptureWriter c = new CaptureWriter(file);
         c.write(UpStream.newBuilder().setHello(buildHello()).build());
         capture = c;
+        // Re-sync the world so the recording carries the terrain from its first
+        // frame. A capture started mid-connection would otherwise only see the
+        // sections the player newly walks into, and anything replaying it would
+        // judge movement over ground it cannot see.
+        if (world.enabled()) world.reset();
     }
 
     public synchronized CaptureWriter stopCapture() {
@@ -192,7 +202,7 @@ public final class Telemetry implements HelloSupplier {
     public CaptureWriter capture() { return capture; }
 
     public void track(Player p) {
-        roster.put(p.getUniqueId(), Names.ref(p.getUniqueId(), p.getName(), !onlineMode));
+        roster.put(p.getUniqueId(), Names.ref(p.getUniqueId(), p.getName(), cracked));
         players.put(p.getUniqueId(), p);
         moved.put(p.getUniqueId(), new MovedCounter(3));
         ctx.start(p);
@@ -205,7 +215,7 @@ public final class Telemetry implements HelloSupplier {
 
     public PlayerRef ref(Player p) {
         PlayerRef r = roster.get(p.getUniqueId());
-        return r != null ? r : Names.ref(p.getUniqueId(), p.getName(), !onlineMode);
+        return r != null ? r : Names.ref(p.getUniqueId(), p.getName(), cracked);
     }
 
     public PlayerContext context(Player p) { return ctx.get(p.getUniqueId()); }

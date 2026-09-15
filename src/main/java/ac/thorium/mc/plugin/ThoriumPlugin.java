@@ -94,7 +94,10 @@ public final class ThoriumPlugin extends JavaPlugin {
         ConnectionConfig ccfg = new ConnectionConfig(cfg.gatewayUrl, cfg.devSessionToken, version);
         TokenSource tokens = new SessionAuth(cfg.gatewayUrl, cfg.serverToken, version, 10_000);
         connection = new EngineConnection(ccfg, tokens, () -> telemetry.buildHello(), new Handler(), getLogger());
-        telemetry = new Telemetry(connection, buffer, contexts, world, compat, sched, gate, cfg, version, getServer().getOnlineMode(), getLogger());
+        // Not getOnlineMode() on its own: behind a proxy it is off by design while
+        // the UUIDs are real, so asking ServerCompat keeps a whole proxied network
+        // from being reported as unauthenticated.
+        telemetry = new Telemetry(connection, buffer, contexts, world, compat, sched, gate, cfg, version, compat.cracked(getServer().getOnlineMode()), getLogger());
         if (packetEventsReady) {
             capture = new PacketCapture(telemetry, sched, gate);
             PacketEvents.getAPI().getEventManager().registerListener(capture);
@@ -149,6 +152,7 @@ public final class ThoriumPlugin extends JavaPlugin {
     public ServerCompat compat() { return compat; }
     public Scheduler scheduler() { return sched; }
     public PluginConfig config() { return cfg; }
+    public WorldMirror world() { return world; }
 
     private final class Handler implements DownstreamHandler {
         @Override public void onHelloAck(HelloAck ack) {
