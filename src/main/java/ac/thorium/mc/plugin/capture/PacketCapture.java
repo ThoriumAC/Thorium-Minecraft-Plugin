@@ -64,6 +64,15 @@ public final class PacketCapture extends PacketListenerAbstract {
     private void dispatch(PacketType.Play.Client t, PacketReceiveEvent event, Player p) {
         switch (t) {
             case PLAYER_FLYING: case PLAYER_POSITION: case PLAYER_POSITION_AND_ROTATION: case PLAYER_ROTATION: onFlying(new WrapperPlayClientPlayerFlying(event), p); break;
+            // A player in a boat sends no position packets at all: the client
+            // sends where the vehicle went instead. Thirty seconds of riding
+            // produced not one movement sample, so the check written for
+            // vehicles had nothing to judge even once it was being called.
+            //
+            // Every movement check but that one sits out a riding player
+            // (checks.Ctx.Exempt), so these samples reach the one check that
+            // asked for them and nothing else.
+            case VEHICLE_MOVE: onVehicleMove(new WrapperPlayClientVehicleMove(event), p); break;
             case ENTITY_ACTION: onEntityAction(new WrapperPlayClientEntityAction(event), p); break;
             case PLAYER_INPUT: { WrapperPlayClientPlayerInput w = new WrapperPlayClientPlayerInput(event); Flags f = flags(p); f.sneaking = w.isShift(); f.sprinting = w.isSprint(); break; }
             case INTERACT_ENTITY: onInteract(new WrapperPlayClientInteractEntity(event), p); break;
@@ -90,6 +99,23 @@ public final class PacketCapture extends PacketListenerAbstract {
         if (rot) { f.yaw = l.getYaw(); f.pitch = l.getPitch(); }
         if (!pos && rot) { telemetry.sample(p, SampleFactory.rotation(l.getYaw(), l.getPitch(), w.isOnGround())); return; }
         telemetry.sample(p, SampleFactory.movement(l.getX(), l.getY(), l.getZ(), l.getYaw(), l.getPitch(), pos, rot, w.isOnGround(), f.sprinting, f.sneaking, w.isHorizontalCollision()));
+    }
+
+    // Where the vehicle went is where the player went. The packet carries no
+    // onGround flag - the passenger is not the one touching the ground - so
+    // the sample says false and the vehicle checks read the block below from
+    // the context tracker like everything else.
+    private void onVehicleMove(WrapperPlayClientVehicleMove w, Player p) {
+        if (!p.isInsideVehicle()) return;
+        Flags f = flags(p);
+        f.x = w.getPosition().getX();
+        f.y = w.getPosition().getY();
+        f.z = w.getPosition().getZ();
+        f.hasPos = true;
+        f.yaw = w.getYaw();
+        f.pitch = w.getPitch();
+        telemetry.sample(p, SampleFactory.movement(f.x, f.y, f.z, w.getYaw(), w.getPitch(),
+            true, true, false, f.sprinting, f.sneaking, false));
     }
 
     private void onEntityAction(WrapperPlayClientEntityAction w, Player p) {
