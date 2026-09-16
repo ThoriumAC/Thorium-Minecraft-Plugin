@@ -81,6 +81,22 @@ public final class WorldMirror {
      * none of the spike.
      */
     public static final int DEFAULT_VERIFY_COLUMNS = 8;
+    /**
+     * How stale the column a player is standing in may get. Far shorter than the
+     * general sweep, because this is the one place staleness turns into a
+     * verdict.
+     *
+     * <p>Nothing tells the plugin about /fill, /setblock, WorldEdit, or any
+     * plugin calling Block.setType: none of them fire a Bukkit block event, so
+     * the only way the mirror ever learns is by looking again. Two minutes of
+     * that under someone's feet reads to the engine as a player standing on
+     * nothing, and the movement checks say so - the compat matrix caught a
+     * legit bot flagged for hovering while it stood still on a floor that had
+     * been filled in after the snapshot.
+     */
+    public static final long DEFAULT_HOT_INTERVAL_TICKS = 60;   // 3 seconds
+    /** Hot columns re-queued per retarget. One per player is the intent. */
+    public static final int DEFAULT_HOT_COLUMNS = 4;
 
     private volatile boolean enabled;
     private volatile int radiusChunks = DEFAULT_RADIUS_CHUNKS;
@@ -117,6 +133,10 @@ public final class WorldMirror {
     private long tickNow;
     private long verifyIntervalTicks = DEFAULT_VERIFY_INTERVAL_TICKS;
     private int verifyColumnsPerRetarget = DEFAULT_VERIFY_COLUMNS;
+    private long hotIntervalTicks = DEFAULT_HOT_INTERVAL_TICKS;
+    private int hotColumnsPerRetarget = DEFAULT_HOT_COLUMNS;
+    /** When each column was last read from the world, for the hot sweep. */
+    private final Map<ColumnPos, Long> columnVerified = new LinkedHashMap<ColumnPos, Long>();
     private long droppedChanges;
     private long changeSeq;
     /** Main-thread (or region-thread) time spent inside getChunkSnapshot. */
@@ -184,6 +204,16 @@ public final class WorldMirror {
      * @return the number of columns queued for snapshotting
      */
     public synchronized int retarget(Collection<SectionPos> want, long tick) {
+        return retarget(want, java.util.Collections.<ColumnPos>emptyList(), tick);
+    }
+
+    /**
+     * @param hot columns a player currently occupies, which are re-read on
+     *            {@link #DEFAULT_HOT_INTERVAL_TICKS} rather than the general
+     *            staleness interval. Bounded by its own budget, so this cannot
+     *            starve the sweep or exceed the sampler's per-tick ceiling.
+     */
+    public synchronized int retarget(Collection<SectionPos> want, Collection<ColumnPos> hot, long tick) {
         if (!enabled) return 0;
         retargeted = true;
         tickNow = tick;
@@ -206,6 +236,18 @@ public final class WorldMirror {
             deltas.remove(p);
             dropped.add(p);
         }
+        // The ground under people's feet first: it is both the most likely to
+        // have been changed by something that fires no event, and the only
+        // place where believing stale terrain produces a verdict.
+        if (hotIntervalTicks > 0 && hotColumnsPerRetarget > 0) {
+            int hotBudget = hotColumnsPerRetarget;
+            for (ColumnPos c : hot) {
+                if (hotBudget <= 0) break;
+                Long at = columnVerified.get(c);
+                if (at != null && tick - at.longValue() < hotIntervalTicks) continue;
+                if (pendingColumns.add(c)) hotBudget--;
+            }
+        }
         // Then a bounded slice of the stalest held sections. `wanted` is in the
         // sampler's ring order, so this verifies nearest-to-player first too.
         int budget = verifyColumnsPerRetarget;
@@ -217,6 +259,13 @@ public final class WorldMirror {
                 if (pendingColumns.add(column(p))) budget--;
             }
         }
+        // Forget columns nothing wants any more, so this map tracks the mirror
+        // rather than growing with every place a player has ever stood.
+        if (!columnVerified.isEmpty()) {
+            Set<ColumnPos> live = new HashSet<ColumnPos>();
+            for (SectionPos p : wanted) live.add(column(p));
+            columnVerified.keySet().retainAll(live);
+        }
         return pendingColumns.size();
     }
 
@@ -227,6 +276,12 @@ public final class WorldMirror {
     public synchronized void setVerification(long intervalTicks, int columnsPerRetarget) {
         verifyIntervalTicks = intervalTicks;
         verifyColumnsPerRetarget = columnsPerRetarget;
+    }
+
+    /** Tunes the under-foot sweep. 0 for either disables it. */
+    public synchronized void setHotVerification(long intervalTicks, int columnsPerRetarget) {
+        hotIntervalTicks = intervalTicks;
+        hotColumnsPerRetarget = columnsPerRetarget;
     }
 
     public static ColumnPos column(SectionPos p) { return new ColumnPos(p.getDimension(), p.getX(), p.getZ()); }
@@ -275,6 +330,10 @@ public final class WorldMirror {
         if (!enabled || !wanted.contains(pos)) return false;
         Held prev = held.get(pos);
         long h = data.contentHash();
+        // Recorded before the unchanged-content shortcut below: a column that
+        // never changes was still looked at, and forgetting that would leave it
+        // eligible for the under-foot sweep on every retarget for ever.
+        columnVerified.put(column(pos), Long.valueOf(tickNow));
         // Changes up to the token are already baked into the bytes that were read;
         // anything newer happened after the snapshot and must still be sent.
         LinkedHashMap<Integer, Change> queued = deltas.get(pos);

@@ -101,7 +101,7 @@ public final class WorldSampler {
         if (!mirror.enabled()) return;
         ticks++;
         if (ticks % RETARGET_EVERY_TICKS == 0) {
-            mirror.retarget(wantedSections(), ticks);
+            mirror.retarget(wantedSections(), occupiedColumns(), ticks);
         }
         // Backpressure: taking snapshots the decoders cannot keep up with only pins
         // memory and deepens the spike. The columns stay queued for a later tick.
@@ -122,6 +122,26 @@ public final class WorldSampler {
      * retarget, so past the cap the mirror spends its whole snapshot budget
      * dropping and re-reading sections instead of converging.
      */
+    /**
+     * The column each online player is standing in.
+     *
+     * <p>These are re-read far more often than the rest of the mirror. Nothing
+     * reports a /fill, a /setblock, a WorldEdit paste or a plugin's
+     * Block.setType, so ground that changed under a player stays wrong in the
+     * mirror until something looks again - and the engine, believing it, has a
+     * player standing on nothing.
+     */
+    private List<WorldMirror.ColumnPos> occupiedColumns() {
+        List<WorldMirror.ColumnPos> out = new ArrayList<WorldMirror.ColumnPos>();
+        for (Player p : server.getOnlinePlayers()) {
+            Location loc = p.getLocation();
+            World w = loc.getWorld();
+            if (w == null) continue;
+            out.add(new WorldMirror.ColumnPos(w.getName(), loc.getBlockX() >> 4, loc.getBlockZ() >> 4));
+        }
+        return out;
+    }
+
     private Set<SectionPos> wantedSections() {
         Set<SectionPos> out = new LinkedHashSet<SectionPos>();
         int r = mirror.radiusChunks();
