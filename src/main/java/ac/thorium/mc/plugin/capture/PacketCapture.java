@@ -1,6 +1,7 @@
 package ac.thorium.mc.plugin.capture;
 
 import ac.thorium.mc.plugin.compat.ErrorGate;
+import ac.thorium.mc.plugin.compat.Hitboxes;
 import ac.thorium.mc.plugin.compat.Reflect;
 import ac.thorium.mc.plugin.compat.Scheduler;
 import ac.thorium.mc.plugin.telemetry.PlayerContext;
@@ -102,6 +103,14 @@ public final class PacketCapture extends PacketListenerAbstract {
         }
     }
 
+    private static final Method SLIME_SIZE = Reflect.method("org.bukkit.entity.Slime", "getSize");
+
+    /** A slime's size, which is what scales its hitbox; 0 for anything else. */
+    private static int slimeSize(Entity e) {
+        Object v = Reflect.invoke(SLIME_SIZE, e);
+        return v instanceof Integer ? (Integer) v : 0;
+    }
+
     private double[] attackerPos(Player p) {
         Flags f = flags(p);
         if (f.hasPos) return new double[]{f.x, f.y, f.z, f.yaw, f.pitch};
@@ -122,8 +131,15 @@ public final class PacketCapture extends PacketListenerAbstract {
                 tx = tl.getX(); ty = tl.getY(); tz = tl.getZ();
                 isPlayer = target instanceof Player;
                 Object wv = Reflect.invoke(ENTITY_WIDTH, target), hv = Reflect.invoke(ENTITY_HEIGHT, target);
-                width = wv instanceof Double ? ((Double) wv).floatValue() : (isPlayer ? 0.6f : 0f);
-                height = hv instanceof Double ? ((Double) hv).floatValue() : (isPlayer ? 1.8f : 0f);
+                width = wv instanceof Double ? ((Double) wv).floatValue() : 0f;
+                height = hv instanceof Double ? ((Double) hv).floatValue() : 0f;
+                // Pre-1.11 the API has no getWidth/getHeight, so the size has to
+                // come from the vanilla table or the combat checks sit the attack
+                // out entirely. See Hitboxes.
+                if (width <= 0f || height <= 0f) {
+                    float[] box = Hitboxes.vanilla(target.getType().name(), slimeSize(target));
+                    if (box != null) { width = box[0]; height = box[1]; }
+                }
                 if (isPlayer) ref = telemetry.ref((Player) target);
             }
             telemetry.sample(p, SampleFactory.combat(action, targetId, ref, a[0], a[1], a[2], (float) a[3], (float) a[4], tx, ty, tz, width, height, isPlayer), at, tick);
