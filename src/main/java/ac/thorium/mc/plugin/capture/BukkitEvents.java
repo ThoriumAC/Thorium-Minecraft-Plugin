@@ -14,12 +14,17 @@ import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.player.*;
 import org.bukkit.util.Vector;
 
+import java.lang.reflect.Method;
 import java.util.Locale;
 
 public final class BukkitEvents implements Listener {
+    /** Entity#isGliding arrived in 1.9; before that an elytra did not exist. */
+    private static final Method GLIDING = ac.thorium.mc.plugin.compat.Reflect.method(org.bukkit.entity.Entity.class, "isGliding");
+
     private final Telemetry telemetry;
     private final PacketCapture capture;   // null when packetevents failed to load
     private final ErrorGate gate;
@@ -122,6 +127,26 @@ public final class BukkitEvents implements Listener {
             Player p = e.getPlayer();
             telemetry.markMoved(p);
             telemetry.event(p, EventFactory.world(Names.dimension(p.getWorld().getEnvironment().name())));
+        });
+    }
+
+    /**
+     * A firework used while gliding: the one push an elytra pilot is allowed
+     * to give themselves.
+     *
+     * <p>PlayerElytraBoostEvent would say this directly and only exists on
+     * Paper, so this reads the interaction instead, which every server has.
+     * Without it the movement checks cannot tell a boosted climb from an
+     * impossible one, and would have to let every climb pass.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onInteract(PlayerInteractEvent e) {
+        if (e.getAction() != Action.RIGHT_CLICK_AIR && e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (e.getItem() == null || !e.getItem().getType().name().contains("FIREWORK")) return;
+        gate.run("event:boost", () -> {
+            Player p = e.getPlayer();
+            if (!ac.thorium.mc.plugin.compat.Reflect.bool(GLIDING, p, false)) return;
+            telemetry.event(p, EventFactory.boost("firework"));
         });
     }
 
