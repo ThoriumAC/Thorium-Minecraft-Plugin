@@ -106,6 +106,10 @@ public final class ContextTracker {
         // The mirror keys sections by world name, so the engine needs it to look the player up.
         b.world(p.getWorld().getName());
         b.pingMs(compat.ping(p)).tps(compat.tps());
+        // The type matters as much as the fact: a minecart climbs legitimately
+        // for as long as the rail goes up, and a boat in the air cannot climb
+        // at all. A check given only the boolean has to assume the minecart.
+        b.vehicleType(p.getVehicle() == null ? "" : p.getVehicle().getType().name());
         b.inVehicle(p.isInsideVehicle()).flyingAllowed(p.getAllowFlight()).isFlying(p.isFlying()).dead(p.isDead()).sleeping(p.isSleeping());
         b.gliding(Reflect.bool(IS_GLIDING, p, false)).riptiding(Reflect.bool(IS_RIPTIDING, p, false));
         for (PotionEffect e : p.getActivePotionEffects()) {

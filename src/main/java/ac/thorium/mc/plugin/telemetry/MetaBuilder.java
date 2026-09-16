@@ -8,7 +8,7 @@ public final class MetaBuilder {
     public static ServerMeta build(PlayerContext c, boolean serverMoved) {
         return ServerMeta.newBuilder()
                 .setGamemode(c.gamemode).setDimension(c.dimension).setWorld(c.world).setPingMs(c.pingMs).setTps(c.tps).setServerMoved(serverMoved)
-                .setInVehicle(c.inVehicle).setGliding(c.gliding).setRiptiding(c.riptiding).setInWater(c.inWater).setInLava(c.inLava)
+                .setInVehicle(c.inVehicle).setVehicleType(c.vehicleType).setGliding(c.gliding).setRiptiding(c.riptiding).setInWater(c.inWater).setInLava(c.inLava)
                 .setOnIce(c.onIce).setOnLadder(c.onLadder).setInWeb(c.inWeb).setOnSlime(c.onSlime).setOnSoulSand(c.onSoulSand)
                 .setBlockBelowSolid(c.blockBelowSolid).setBlockAboveSolid(c.blockAboveSolid).setBlockBelowLiquid(c.blockBelowLiquid).setLevitation(c.levitation).setSlowFalling(c.slowFalling)
                 .setSpeedAmplifier(c.speedAmplifier).setJumpAmplifier(c.jumpAmplifier).setFlyingAllowed(c.flyingAllowed).setIsFlying(c.isFlying)
