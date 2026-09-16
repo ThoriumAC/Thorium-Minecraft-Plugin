@@ -72,4 +72,13 @@ message ServerMeta {
   // `dimension` is the environment (overworld/nether/end) and several worlds can
   // share one, so it cannot address the mirror on its own.
   string world = 35;
+
+  // What the player is riding, lower-cased ("boat", "minecart", "horse"),
+  // empty when they are not riding anything.
+  //
+  // in_vehicle alone is not enough to judge a vehicle by. A minecart climbs
+  // legitimately, every tick, for as long as the rail goes up; a boat in the
+  // air cannot climb at all. Without the type, a check has to treat every
+  // vehicle like a minecart and catch nothing.
+  string vehicle_type = 36;
 }
