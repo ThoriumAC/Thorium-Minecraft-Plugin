@@ -14,6 +14,7 @@ import ac.thorium.mc.plugin.telemetry.ContextTracker;
 import ac.thorium.mc.plugin.telemetry.SampleBuffer;
 import ac.thorium.mc.plugin.telemetry.Telemetry;
 import ac.thorium.mc.plugin.transport.*;
+import ac.thorium.mc.plugin.world.SnapshotReader;
 import ac.thorium.mc.plugin.world.WorldBlockEvents;
 import ac.thorium.mc.plugin.world.WorldMirror;
 import ac.thorium.mc.plugin.world.WorldSampler;
@@ -80,6 +81,32 @@ public final class ThoriumPlugin extends JavaPlugin {
         }
         startPipeline();
         getLogger().info("Thorium " + getDescription().getVersion() + " enabled on " + compat.software().name().replace("SERVER_SOFTWARE_", "") + " " + compat.mcVersion() + (sched.isFolia() ? " (Folia)" : ""));
+        logCompatReport();
+    }
+
+    /**
+     * Writes the compat report to the server log once, at enable.
+     *
+     * <p>Every version-adaptive lookup in this plugin fails silently: a missing
+     * method yields a null handle, the mirror streams air, and the engine goes
+     * on judging players against ground it cannot see. {@code /thorium compat}
+     * exists to say which of those has happened, but it has to be typed by
+     * somebody who already suspects it - and on a version nobody has run the
+     * plugin against, nobody does. The log line is free and always there.
+     *
+     * <p>Held sections are necessarily zero this early. The line that matters
+     * at enable is which reflection branch each lookup resolved to, which is
+     * fixed by the server's API and will not change while it runs.
+     */
+    private void logCompatReport() {
+        for (String line : ThoriumCommand.compatLines(getDescription().getVersion(),
+                compat.software().name().replace("SERVER_SOFTWARE_", ""), compat.mcVersion(),
+                sched.isFolia(), System.getProperty("java.version", "?"),
+                getServer().getOnlineMode(), compat.proxyForwarding(),
+                world != null && world.enabled(), world == null ? 0 : world.heldSections(),
+                SnapshotReader.branches())) {
+            getLogger().info(line.replaceAll("\u00a7.", "").trim());
+        }
     }
 
     private void startPipeline() {
