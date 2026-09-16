@@ -23,6 +23,7 @@ public final class EventFactory {
     public static PlayerEvent.Builder gamemode(int gamemode) { return PlayerEvent.newBuilder().setGamemode(GamemodeChange.newBuilder().setGamemode(gamemode)); }
     public static PlayerEvent.Builder world(String dimension) { return PlayerEvent.newBuilder().setWorld(WorldChange.newBuilder().setDimension(dimension == null ? "" : dimension)); }
     public static PlayerEvent.Builder respawn() { return PlayerEvent.newBuilder().setRespawn(Respawn.newBuilder()); }
+    public static PlayerEvent.Builder boost(String source) { return PlayerEvent.newBuilder().setBoost(Boost.newBuilder().setSource(source == null ? "" : source)); }
 
     public static String hostAddress(InetSocketAddress addr, boolean allowed) {
         if (!allowed || addr == null || addr.getAddress() == null) return "";

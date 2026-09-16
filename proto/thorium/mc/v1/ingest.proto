@@ -79,6 +79,7 @@ message PlayerEvent {
     GamemodeChange gamemode = 15;
     WorldChange world = 16;
     Respawn respawn = 17;
+    Boost boost = 18;
   }
 }
 
@@ -95,6 +96,11 @@ message Damage { string cause = 1; double amount = 2; double fall_distance = 3; 
 message GamemodeChange { int32 gamemode = 1; }
 message WorldChange { string dimension = 1; }
 message Respawn {}
+// A push the player is allowed to give themselves: a firework rocket used
+// while gliding, or a riptide trident. Without one of these an elytra can only
+// ever trade speed for height, so the movement checks need to know when one
+// happened before they can call a climb impossible.
+message Boost { string source = 1; }   // "firework" | "riptide"
 
 message Control {
   oneof kind {

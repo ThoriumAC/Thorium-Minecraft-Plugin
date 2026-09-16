@@ -5,6 +5,7 @@ import ac.thorium.mc.plugin.capture.PacketCapture;
 import ac.thorium.mc.plugin.capture.PacketSend;
 import ac.thorium.mc.plugin.command.ThoriumCommand;
 import ac.thorium.mc.plugin.compat.ErrorGate;
+import ac.thorium.mc.plugin.compat.Reflect;
 import ac.thorium.mc.plugin.compat.Scheduler;
 import ac.thorium.mc.plugin.compat.ServerCompat;
 import ac.thorium.mc.plugin.config.PluginConfig;
@@ -109,6 +110,40 @@ public final class ThoriumPlugin extends JavaPlugin {
         }
     }
 
+    /**
+     * Listens for riptide, the other push a player may legitimately give
+     * themselves in the air.
+     *
+     * <p>Registered by name rather than by a typed handler: this plugin
+     * compiles against the 1.8 API so that it cannot reach for anything newer
+     * by accident, and PlayerRiptideEvent arrived in 1.13. Bukkit resolves a
+     * handler method's parameter type when it registers it, so a typed
+     * listener for a class this server does not have would fail - taking every
+     * other handler in the same class with it.
+     */
+    private void registerRiptide() {
+        try {
+            @SuppressWarnings("unchecked")
+            Class<? extends org.bukkit.event.Event> cls =
+                    (Class<? extends org.bukkit.event.Event>) Class.forName("org.bukkit.event.player.PlayerRiptideEvent");
+            final java.lang.reflect.Method getPlayer = cls.getMethod("getPlayer");
+            org.bukkit.event.Listener holder = new org.bukkit.event.Listener() {};
+            getServer().getPluginManager().registerEvent(cls, holder, org.bukkit.event.EventPriority.MONITOR,
+                    new org.bukkit.plugin.EventExecutor() {
+                        @Override public void execute(org.bukkit.event.Listener l, org.bukkit.event.Event e) {
+                            gate.run("event:riptide", () -> {
+                                Object p = Reflect.invoke(getPlayer, e);
+                                if (p instanceof org.bukkit.entity.Player && telemetry != null) {
+                                    telemetry.event((org.bukkit.entity.Player) p, ac.thorium.mc.plugin.capture.EventFactory.boost("riptide"));
+                                }
+                            });
+                        }
+                    }, this, true);
+        } catch (Throwable t) {
+            getLogger().fine("Thorium: no riptide event on this server; elytra boosts from a trident will not be reported");
+        }
+    }
+
     private void startPipeline() {
         String version = getDescription().getVersion();
         SampleBuffer buffer = new SampleBuffer(400);
@@ -134,6 +169,7 @@ public final class ThoriumPlugin extends JavaPlugin {
         }
         events = new BukkitEvents(telemetry, capture, gate, cfg.sendIp);
         getServer().getPluginManager().registerEvents(events, this);
+        registerRiptide();
         // World streaming stays dormant until the engine's IngestPolicy turns it on,
         // so upgrading the plugin never costs a server TPS on its own.
         worldEvents = new WorldBlockEvents(world, gate);
