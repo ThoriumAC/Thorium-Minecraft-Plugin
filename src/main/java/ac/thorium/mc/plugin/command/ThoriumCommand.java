@@ -111,13 +111,26 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
                 if (!sender.hasPermission(ADMIN)) { sender.sendMessage("§cNo permission."); return true; }
                 if (plugin.telemetry() == null) { sender.sendMessage("§cNot connected."); return true; }
                 String name = args.length > 1 ? args[1].replaceAll("[^A-Za-z0-9_-]", "") : "";
+                // Recordings belong to whoever started them, so several people
+                // - or several test clients - can record at once and stopping
+                // one does not stop the rest. From the console, "stop" still
+                // means all of them.
+                String owner = sender instanceof Player ? ((Player) sender).getUniqueId().toString() : "@console";
                 if (name.isEmpty() || name.equalsIgnoreCase("stop")) {
-                    ac.thorium.mc.plugin.telemetry.CaptureWriter c = plugin.telemetry().stopCapture();
+                    if (!(sender instanceof Player)) {
+                        java.util.List<ac.thorium.mc.plugin.telemetry.CaptureWriter> all = plugin.telemetry().stopCaptures();
+                        if (all.isEmpty()) { sender.sendMessage("§7No capture running. Usage: /thorium capture <label>"); return true; }
+                        for (ac.thorium.mc.plugin.telemetry.CaptureWriter c : all) {
+                            sender.sendMessage("§aSaved " + c.file().getName() + " (" + c.frames() + " frames)");
+                        }
+                        return true;
+                    }
+                    ac.thorium.mc.plugin.telemetry.CaptureWriter c = plugin.telemetry().stopCapture(owner);
                     sender.sendMessage(c == null ? "§7No capture running. Usage: /thorium capture <label>" : "§aSaved " + c.file().getName() + " (" + c.frames() + " frames)");
                     return true;
                 }
                 java.io.File f = new java.io.File(plugin.getDataFolder(), "captures/" + name + "-" + System.currentTimeMillis() / 1000 + ".bin");
-                try { plugin.telemetry().startCapture(f); sender.sendMessage("§aCapturing to " + f.getName() + " — /thorium capture stop when done"); }
+                try { plugin.telemetry().startCapture(owner, f); sender.sendMessage("§aCapturing to " + f.getName() + " — /thorium capture stop when done"); }
                 catch (java.io.IOException e) { sender.sendMessage("§cCould not open " + f + ": " + e.getMessage()); }
                 return true;
             }

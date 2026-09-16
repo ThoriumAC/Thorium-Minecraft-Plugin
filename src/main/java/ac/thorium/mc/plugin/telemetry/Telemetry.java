@@ -56,7 +56,17 @@ public final class Telemetry implements HelloSupplier {
     private volatile ScheduledFuture<?> flushTask, heartbeatTask;
     private volatile Object tickTask;
     private volatile int flushIntervalMs;
-    private volatile CaptureWriter capture;
+    // Recordings in progress, keyed by whoever asked for one.
+    //
+    // There used to be one. Starting a capture stopped the previous, which is
+    // fine for a person debugging one player and wrong for anything with more
+    // than one client on the server: a compatibility run starts seventeen
+    // captures within a few seconds of each other and kept only the last,
+    // leaving sixteen files holding a second or two each. Twice now a failure
+    // that only happens under load could not be read back, because the only
+    // recording of it was a fragment.
+    private final java.util.concurrent.ConcurrentMap<String, CaptureWriter> captures =
+        new java.util.concurrent.ConcurrentHashMap<String, CaptureWriter>();
 
     public Telemetry(EngineConnection conn, SampleBuffer buffer, ContextTracker ctx, WorldMirror world, ServerCompat compat, Scheduler sched, ErrorGate gate,
                      PluginConfig cfg, String pluginVersion, boolean cracked, Logger log) {
@@ -79,7 +89,7 @@ public final class Telemetry implements HelloSupplier {
         if (heartbeatTask != null) heartbeatTask.cancel(false);
         if (probeTask != null) probeTask.cancel(false);
         exec.shutdownNow();
-        stopCapture();
+        stopCaptures();
         sched.cancel(tickTask);
         ctx.stopAll();
         world.clear();
@@ -151,8 +161,9 @@ public final class Telemetry implements HelloSupplier {
 
     /** Sends to the engine and mirrors the frame into the dev capture file when recording. */
     private boolean send(UpStream u) {
-        CaptureWriter c = capture;
-        if (c != null) c.write(u);
+        if (!captures.isEmpty()) {
+            for (CaptureWriter c : captures.values()) c.write(u);
+        }
         return conn.send(u);
     }
 
@@ -179,12 +190,16 @@ public final class Telemetry implements HelloSupplier {
                 .setOnlinePlayers(roster.size()).setTps(compat.tps()).setMspt(compat.mspt())).build());
     }
 
-    /** Start recording to file (writes a Hello first so replays carry the roster); stops any previous recording. */
-    public synchronized void startCapture(java.io.File file) throws java.io.IOException {
-        stopCapture();
+    /**
+     * Start recording to file under {@code owner}, writing a Hello first so
+     * replays carry the roster. Replaces only that owner's own recording;
+     * anyone else's keeps running.
+     */
+    public synchronized void startCapture(String owner, java.io.File file) throws java.io.IOException {
+        stopCapture(owner);
         CaptureWriter c = new CaptureWriter(file);
         c.write(UpStream.newBuilder().setHello(buildHello()).build());
-        capture = c;
+        captures.put(owner, c);
         // Re-sync the world so the recording carries the terrain from its first
         // frame. A capture started mid-connection would otherwise only see the
         // sections the player newly walks into, and anything replaying it would
@@ -192,14 +207,24 @@ public final class Telemetry implements HelloSupplier {
         if (world.enabled()) world.reset();
     }
 
-    public synchronized CaptureWriter stopCapture() {
-        CaptureWriter c = capture;
-        capture = null;
+    /** Stops and returns {@code owner}'s recording, or null if they had none. */
+    public synchronized CaptureWriter stopCapture(String owner) {
+        CaptureWriter c = captures.remove(owner);
         if (c != null) c.close();
         return c;
     }
 
-    public CaptureWriter capture() { return capture; }
+    /** Stops every recording, for shutdown and for a console "capture stop". */
+    public synchronized java.util.List<CaptureWriter> stopCaptures() {
+        java.util.List<CaptureWriter> out = new java.util.ArrayList<CaptureWriter>();
+        for (String k : new java.util.ArrayList<String>(captures.keySet())) {
+            CaptureWriter c = captures.remove(k);
+            if (c != null) { c.close(); out.add(c); }
+        }
+        return out;
+    }
+
+    public boolean capturing() { return !captures.isEmpty(); }
 
     public void track(Player p) {
         roster.put(p.getUniqueId(), Names.ref(p.getUniqueId(), p.getName(), cracked));
@@ -260,12 +285,16 @@ public final class Telemetry implements HelloSupplier {
     public int flushIntervalMs() { return flushIntervalMs; }
 
     public String statusLine() {
-        CaptureWriter c = capture;
+        StringBuilder rec = new StringBuilder();
+        for (CaptureWriter c : captures.values()) {
+            rec.append(rec.length() == 0 ? ", capturing " : ", ")
+               .append(c.file().getName()).append(" (").append(c.frames()).append(" frames)");
+        }
         return "queue " + buffer.pending() + ", dropped " + buffer.dropped() + ", flush " + flushIntervalMs + " ms, " + roster.size() + " players, tick " + tick.get()
                 + ", ctx " + ctx.contextNanos() + " ns over " + ctx.contextCount()
                 + (world.enabled() ? ", world " + world.heldSections() + " sections, " + world.snapshotMicros() + " us/snapshot over " + world.snapshotCount()
                     + (ac.thorium.mc.plugin.world.SnapshotReader.emptyFastPathEnabled() ? ", empty-skip on" : ", empty-skip off")
                     + (world.syncing() ? " (syncing, " + world.pendingColumnCount() + " columns left)" : "") : "")
-                + (c == null ? "" : ", capturing " + c.file().getName() + " (" + c.frames() + " frames)");
+                + rec;
     }
 }
