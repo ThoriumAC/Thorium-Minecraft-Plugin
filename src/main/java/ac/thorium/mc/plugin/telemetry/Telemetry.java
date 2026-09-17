@@ -18,10 +18,13 @@ import org.bukkit.entity.Player;
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
@@ -67,6 +70,27 @@ public final class Telemetry implements HelloSupplier {
     // recording of it was a fragment.
     private final java.util.concurrent.ConcurrentMap<String, CaptureWriter> captures =
         new java.util.concurrent.ConcurrentHashMap<String, CaptureWriter>();
+    /** Frames a full capture queue had to throw away, and how many. */
+    private final AtomicLong captureDropped = new AtomicLong();
+    /**
+     * Where capture frames are written.
+     *
+     * <p>They used to be written inline, inside {@link #send}, which is reached
+     * from {@link #event} - and that runs in main-thread Bukkit handlers. For as
+     * long as a capture was running the server thread did FileOutputStream
+     * writes and contended with the flush worker for the writer's lock, on a
+     * command an admin is invited to run on a live server.
+     *
+     * <p>One thread, so frames keep the order they were sent in. Bounded, so a
+     * disk that cannot keep up costs a recording rather than the heap; what it
+     * cost is counted and shown in /thorium status. Started lazily: a server
+     * that never captures never gets the thread.
+     */
+    private static final int CAPTURE_QUEUE = 4096;
+    private final ThreadPoolExecutor captureExec = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<Runnable>(CAPTURE_QUEUE),
+            r -> { Thread t = new Thread(r, "Thorium-Capture"); t.setDaemon(true); return t; },
+            (r, ex) -> captureDropped.incrementAndGet());
 
     public Telemetry(EngineConnection conn, SampleBuffer buffer, ContextTracker ctx, WorldMirror world, ServerCompat compat, Scheduler sched, ErrorGate gate,
                      PluginConfig cfg, String pluginVersion, boolean cracked, Logger log) {
@@ -88,8 +112,10 @@ public final class Telemetry implements HelloSupplier {
         if (flushTask != null) flushTask.cancel(false);
         if (heartbeatTask != null) heartbeatTask.cancel(false);
         if (probeTask != null) probeTask.cancel(false);
-        exec.shutdownNow();
+        // Before the executors go: closing a capture drains its queued frames.
         stopCaptures();
+        exec.shutdownNow();
+        captureExec.shutdownNow();
         sched.cancel(tickTask);
         ctx.stopAll();
         world.clear();
@@ -162,9 +188,16 @@ public final class Telemetry implements HelloSupplier {
     /** Sends to the engine and mirrors the frame into the dev capture file when recording. */
     private boolean send(UpStream u) {
         if (!captures.isEmpty()) {
-            for (CaptureWriter c : captures.values()) c.write(u);
+            final UpStream frame = u;
+            submitCapture(() -> { for (CaptureWriter c : captures.values()) c.write(frame); });
         }
         return conn.send(u);
+    }
+
+    /** Queues capture work; the caller's thread never touches the file. */
+    private void submitCapture(Runnable r) {
+        try { captureExec.execute(r); }
+        catch (RejectedExecutionException e) { captureDropped.incrementAndGet(); }
     }
 
     private void flush() {
@@ -197,8 +230,11 @@ public final class Telemetry implements HelloSupplier {
      */
     public synchronized void startCapture(String owner, java.io.File file) throws java.io.IOException {
         stopCapture(owner);
-        CaptureWriter c = new CaptureWriter(file);
-        c.write(UpStream.newBuilder().setHello(buildHello()).build());
+        final CaptureWriter c = new CaptureWriter(file);
+        final UpStream hello = UpStream.newBuilder().setHello(buildHello()).build();
+        // Queued before the writer is published, so this is the first frame in
+        // the file and no other owner's recording sees it.
+        submitCapture(() -> c.write(hello));
         captures.put(owner, c);
         // Re-sync the world so the recording carries the terrain from its first
         // frame. A capture started mid-connection would otherwise only see the
@@ -210,8 +246,25 @@ public final class Telemetry implements HelloSupplier {
     /** Stops and returns {@code owner}'s recording, or null if they had none. */
     public synchronized CaptureWriter stopCapture(String owner) {
         CaptureWriter c = captures.remove(owner);
-        if (c != null) c.close();
+        if (c != null) closeWhenDrained(c);
         return c;
+    }
+
+    /**
+     * Closes a writer behind whatever is still queued for it, so the frames sent
+     * in the moment before "capture stop" reach the file and the frame count
+     * reported back is the real one. Bounded: a disk that has stopped answering
+     * must not hold the command thread.
+     */
+    private void closeWhenDrained(final CaptureWriter c) {
+        try {
+            captureExec.submit(() -> c.close()).get(500, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            c.close();
+        } catch (Throwable t) {
+            c.close();   // rejected or too slow: close here and lose the tail
+        }
     }
 
     /** Stops every recording, for shutdown and for a console "capture stop". */
@@ -219,7 +272,7 @@ public final class Telemetry implements HelloSupplier {
         java.util.List<CaptureWriter> out = new java.util.ArrayList<CaptureWriter>();
         for (String k : new java.util.ArrayList<String>(captures.keySet())) {
             CaptureWriter c = captures.remove(k);
-            if (c != null) { c.close(); out.add(c); }
+            if (c != null) { closeWhenDrained(c); out.add(c); }
         }
         return out;
     }
@@ -290,6 +343,8 @@ public final class Telemetry implements HelloSupplier {
             rec.append(rec.length() == 0 ? ", capturing " : ", ")
                .append(c.file().getName()).append(" (").append(c.frames()).append(" frames)");
         }
+        long lost = captureDropped.get();
+        if (lost > 0) rec.append(", ").append(lost).append(" capture frames dropped");
         return "queue " + buffer.pending() + ", dropped " + buffer.dropped() + ", flush " + flushIntervalMs + " ms, " + roster.size() + " players, tick " + tick.get()
                 + ", ctx " + ctx.contextNanos() + " ns over " + ctx.contextCount()
                 + (world.enabled() ? ", world " + world.heldSections() + " sections, " + world.snapshotMicros() + " us/snapshot over " + world.snapshotCount()
