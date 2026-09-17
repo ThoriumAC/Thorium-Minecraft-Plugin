@@ -90,11 +90,16 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
             }
             case "compat": {
                 if (!sender.hasPermission(ADMIN)) { sender.sendMessage("§cNo permission."); return true; }
+                // There may be no pipeline: an empty server-token, a gateway-url
+                // the plugin refused, or a stopped pipeline all leave world()
+                // null - and an admin working out why it will not connect is
+                // precisely who types this. status and capture already guard.
+                ac.thorium.mc.plugin.world.WorldMirror world = plugin.world();
                 for (String line : compatLines(plugin.getDescription().getVersion(),
                         plugin.compat().software().name().replace("SERVER_SOFTWARE_", ""), plugin.compat().mcVersion(),
                         plugin.scheduler().isFolia(), System.getProperty("java.version", "?"),
                         plugin.getServer().getOnlineMode(), plugin.compat().proxyForwarding(),
-                        plugin.world().enabled(), plugin.world().heldSections(),
+                        world != null && world.enabled(), world == null ? 0 : world.heldSections(),
                         ac.thorium.mc.plugin.world.SnapshotReader.branches())) {
                     sender.sendMessage(line);
                 }
