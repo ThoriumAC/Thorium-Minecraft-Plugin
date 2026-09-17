@@ -4,6 +4,8 @@ import ac.thorium.mc.proto.Control;
 import ac.thorium.mc.proto.DownStream;
 import ac.thorium.mc.proto.HelloAck;
 import ac.thorium.mc.proto.UpStream;
+import org.java_websocket.WebSocket;
+import org.java_websocket.WebSocketImpl;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.drafts.Draft_6455;
 import org.java_websocket.exceptions.InvalidHandshakeException;
@@ -19,6 +21,7 @@ import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -29,6 +32,21 @@ import java.util.logging.Logger;
 public final class EngineConnection {
     /** Application-range close code the gateway uses for "plugin too old" (a raw 422 is invalid on the wire). */
     private static final int CLOSE_OUTDATED = 4422;
+
+    /**
+     * How much may sit in the socket's outbound queue before we stop adding to it.
+     *
+     * <p>Java-WebSocket's outQueue is unbounded, and a gateway that TCP-accepts
+     * and then stops reading leaves this connection READY while world chunk
+     * frames - up to 192 KiB each, every flush - and heartbeats pile up in the
+     * heap. The 30 s connection-lost timeout is the only other backstop, and 30 s
+     * of that queue is a server dead of OOM rather than of a bad gateway.
+     *
+     * <p>Two ceilings: bytes is the one that matters, and the frame count keeps
+     * measuring the queue cheap when it is full of small frames.
+     */
+    static final int MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+    static final int MAX_QUEUED_FRAMES = 1024;
 
     private final ConnectionConfig cfg;
     private final TokenSource tokens;
@@ -46,6 +64,8 @@ public final class EngineConnection {
     private final AtomicInteger reconnects = new AtomicInteger();
     private volatile long lastStateChangeMs = System.currentTimeMillis();
     private volatile long lastAuthErrorLogMs;
+    private volatile long lastDropLogMs;
+    private final AtomicLong droppedFrames = new AtomicLong();
     private volatile String serverIdHex = "";
 
     private volatile CountDownLatch ackLatch = new CountDownLatch(1);
@@ -87,8 +107,51 @@ public final class EngineConnection {
     public boolean send(UpStream msg) {
         Client c = client;
         if (state != ConnectionState.READY || c == null || !c.isOpen()) return false;
+        if (backedUp(outQueue(c))) { onDropped(); return false; }
         try { c.send(msg.toByteArray()); return true; } catch (Throwable t) { return false; }
     }
+
+    /**
+     * Whether the socket's outbound queue is too full to be handed another frame.
+     *
+     * <p>Counts bytes, stopping as soon as the ceiling is passed, so a full queue
+     * is cheap to recognise; the frame ceiling bounds the walk for a queue full
+     * of heartbeat-sized frames.
+     */
+    static boolean backedUp(java.util.Collection<ByteBuffer> outQueue) {
+        if (outQueue == null) return false;
+        try {
+            if (outQueue.size() >= MAX_QUEUED_FRAMES) return true;
+            long bytes = 0;
+            for (ByteBuffer b : outQueue) {
+                bytes += b.remaining();
+                if (bytes >= MAX_QUEUED_BYTES) return true;
+            }
+        } catch (Throwable ignored) {
+            // The write thread is draining this queue underneath us; a frame is
+            // not worth an exception either way.
+        }
+        return false;
+    }
+
+    private static java.util.Collection<ByteBuffer> outQueue(Client c) {
+        try {
+            WebSocket ws = c.getConnection();
+            return ws instanceof WebSocketImpl ? ((WebSocketImpl) ws).outQueue : null;
+        } catch (Throwable t) { return null; }
+    }
+
+    private void onDropped() {
+        long n = droppedFrames.incrementAndGet();
+        long now = System.currentTimeMillis();
+        if (now - lastDropLogMs > 60_000) {
+            lastDropLogMs = now;
+            log.warning("Thorium: the gateway is not reading; dropping frames to keep them out of the heap (" + n + " so far)");
+        }
+    }
+
+    /** Frames dropped because the outbound queue was full; shown in /thorium status. */
+    public long droppedFrames() { return droppedFrames.get(); }
 
     public void sendHello() {
         Client c = client;
@@ -111,7 +174,9 @@ public final class EngineConnection {
     public String statusLine() {
         long ago = System.currentTimeMillis() - lastStateChangeMs;
         String sid = serverIdHex.isEmpty() ? "" : ", server " + serverIdHex.substring(0, Math.min(8, serverIdHex.length())) + "…";
-        return state + sid + ", " + reconnects.get() + " reconnects, " + (ago / 1000) + "s in state";
+        long dropped = droppedFrames.get();
+        return state + sid + ", " + reconnects.get() + " reconnects, " + (ago / 1000) + "s in state"
+                + (dropped == 0 ? "" : ", " + dropped + " frames dropped (send queue full)");
     }
 
     // ---- loop ----
