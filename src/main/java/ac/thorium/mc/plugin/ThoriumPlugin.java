@@ -80,6 +80,7 @@ public final class ThoriumPlugin extends JavaPlugin {
             getLogger().severe("Thorium: server-token is empty in plugins/Thorium/config.yml - the plugin is idle until configured (/thorium reconnect after editing).");
             return;
         }
+        if (!gatewayUsable()) return;
         startPipeline();
         getLogger().info("Thorium " + getDescription().getVersion() + " enabled on " + compat.software().name().replace("SERVER_SOFTWARE_", "") + " " + compat.mcVersion() + (sched.isFolia() ? " (Folia)" : ""));
         logCompatReport();
@@ -144,6 +145,20 @@ public final class ThoriumPlugin extends JavaPlugin {
         }
     }
 
+    /**
+     * Says whether gateway-url is one the server token may cross, and logs why not.
+     *
+     * <p>Checked here rather than inside the transport because this is where the
+     * config is read: a plugin that silently downgrades to http has already
+     * leaked the credential by the time anything downstream could notice.
+     */
+    private boolean gatewayUsable() {
+        boolean dev = !cfg.devSessionToken.isEmpty();
+        String msg = SessionAuth.insecureGatewayMessage(cfg.gatewayUrl, dev);
+        if (msg != null) getLogger().severe(msg);
+        return SessionAuth.gatewayAllowed(cfg.gatewayUrl, dev);
+    }
+
     private void startPipeline() {
         String version = getDescription().getVersion();
         SampleBuffer buffer = new SampleBuffer(400);
@@ -199,6 +214,7 @@ public final class ThoriumPlugin extends JavaPlugin {
         cfg = PluginConfig.from(getConfig());
         stopPipeline();
         if (!cfg.isConfigured()) { getLogger().severe("Thorium: still not configured."); return; }
+        if (!gatewayUsable()) return;
         startPipeline();
     }
 

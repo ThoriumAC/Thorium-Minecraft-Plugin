@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -57,6 +58,45 @@ public final class SessionAuth implements TokenSource {
         if (json == null) return null;
         Matcher m = TOKEN.matcher(json);
         return m.find() ? m.group(1) : null;
+    }
+
+    /**
+     * Whether this gateway-url is one the long-lived server token may cross.
+     *
+     * <p>{@link #fetchSessionToken()} sends X-SERVER-TOKEN over whatever scheme
+     * gateway-url names, and {@link #toWebSocketUrl} maps http to ws without a
+     * word about it. A typo, or a gateway-url copied out of the local-engine
+     * snippet in the docs, is enough to put a server's permanent credential on
+     * the wire in cleartext. Only TLS counts; anything else — including a
+     * gateway-url with no scheme at all, which nothing here would fix — does not.
+     */
+    public static boolean isSecure(String gatewayBaseUrl) {
+        String u = gatewayBaseUrl == null ? "" : gatewayBaseUrl.trim().toLowerCase(Locale.ROOT);
+        return u.startsWith("https://") || u.startsWith("wss://");
+    }
+
+    /**
+     * Whether the plugin may talk to this gateway-url at all.
+     *
+     * <p>The one cleartext case that is not a leak is a local engine reached
+     * with {@code dev.session-token}: that path never calls
+     * {@link #fetchSessionToken()}, so the server token stays in the config file.
+     */
+    public static boolean gatewayAllowed(String gatewayBaseUrl, boolean devSessionTokenSet) {
+        return isSecure(gatewayBaseUrl) || devSessionTokenSet;
+    }
+
+    /** The SEVERE line this gateway-url deserves, or null when it is https. */
+    public static String insecureGatewayMessage(String gatewayBaseUrl, boolean devSessionTokenSet) {
+        if (isSecure(gatewayBaseUrl)) return null;
+        String u = gatewayBaseUrl == null ? "" : gatewayBaseUrl.trim();
+        if (devSessionTokenSet) {
+            return "Thorium: gateway-url \"" + u + "\" is not https. Connecting anyway because dev.session-token is set, "
+                    + "so the server token stays out of it - but this is a development path and belongs on no live server.";
+        }
+        return "Thorium: gateway-url \"" + u + "\" is not https - the server token would cross the network in cleartext, "
+                + "so the plugin is idle. Set gateway-url to an https:// address (or, for a local engine, set dev.session-token), "
+                + "then /thorium reconnect.";
     }
 
     public static String toWebSocketUrl(String gatewayBaseUrl) {

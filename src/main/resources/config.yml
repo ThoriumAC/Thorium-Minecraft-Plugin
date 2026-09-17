@@ -1,6 +1,9 @@
 # Thorium Minecraft plugin configuration.
-# Gateway base URL (https). The plugin authenticates with server-token and
-# opens a WebSocket at <gateway-url>/api/anticheat/ws.
+# Gateway base URL. Must be https: server-token is sent to it, and the plugin
+# refuses to start on any other scheme (the only exception is a local engine
+# reached with dev.session-token below, which never sends server-token).
+# The plugin authenticates with server-token and opens a WebSocket at
+# <gateway-url>/api/anticheat/ws.
 gateway-url: "https://gateway.thorium.ac"
 # Server token from the Thorium dashboard (Servers -> your server -> Token).
 server-token: ""
@@ -19,5 +22,7 @@ warn-format: "&c[Thorium] &fSuspicious activity detected (%check%). This is a wa
 kick-format: "&cKicked by Thorium anti-cheat\n&7%reason%"
 # Development only. When set, skips gateway auth and connects to gateway-url
 # with this value as the session token (pairs with the engine's STATIC_SESSIONS).
+# This is also the only way a non-https gateway-url is accepted; it belongs on
+# no live server.
 dev:
   session-token: ""

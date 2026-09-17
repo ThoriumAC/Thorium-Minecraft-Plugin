@@ -73,6 +73,37 @@ class SessionAuthTest {
     }
 
     @Test
+    void onlyTlsCarriesTheServerToken() {
+        assertTrue(SessionAuth.isSecure("https://gateway.thorium.ac"));
+        assertTrue(SessionAuth.isSecure("  HTTPS://gateway.thorium.ac  "));
+        assertTrue(SessionAuth.isSecure("wss://gateway.thorium.ac"));
+        assertFalse(SessionAuth.isSecure("http://gateway.thorium.ac"));
+        assertFalse(SessionAuth.isSecure("ws://localhost:3100"));
+        // No scheme is not a scheme the token may cross either.
+        assertFalse(SessionAuth.isSecure("gateway.thorium.ac"));
+        assertFalse(SessionAuth.isSecure(""));
+        assertFalse(SessionAuth.isSecure(null));
+    }
+
+    @Test
+    void cleartextGatewayIsRefusedUnlessTheDevTokenIsSet() {
+        assertTrue(SessionAuth.gatewayAllowed("https://gateway.thorium.ac", false));
+        assertFalse(SessionAuth.gatewayAllowed("http://gateway.thorium.ac", false));
+        // The local-engine path never calls fetchSessionToken, so nothing leaks.
+        assertTrue(SessionAuth.gatewayAllowed("http://localhost:3100", true));
+
+        assertNull(SessionAuth.insecureGatewayMessage("https://gateway.thorium.ac", false));
+        String refused = SessionAuth.insecureGatewayMessage("http://gateway.thorium.ac", false);
+        assertNotNull(refused);
+        assertTrue(refused.contains("cleartext"), refused);
+        assertTrue(refused.contains("http://gateway.thorium.ac"), refused);
+        // The dev path still says so out loud; it is one typo away from production.
+        String dev = SessionAuth.insecureGatewayMessage("http://localhost:3100", true);
+        assertNotNull(dev);
+        assertTrue(dev.contains("dev.session-token"), dev);
+    }
+
+    @Test
     void extractAndUrls() {
         assertEquals("t", SessionAuth.extractSessionToken("{ \"sessionToken\" : \"t\" }"));
         assertNull(SessionAuth.extractSessionToken("{}"));

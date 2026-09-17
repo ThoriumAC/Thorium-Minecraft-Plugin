@@ -14,7 +14,7 @@ and applies the verdicts it gets back.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `gateway-url` | `https://gateway.thorium.ac` | Thorium gateway base URL |
+| `gateway-url` | `https://gateway.thorium.ac` | Thorium gateway base URL. Must be `https://`: the plugin refuses to start on any other scheme, because `server-token` would cross the network in cleartext. The one exception is a local engine reached with `dev.session-token`, which never sends the server token. |
 | `server-token` | — | server token from the dashboard |
 | `flush-interval-ms` | `75` | telemetry batch interval (engine may override; clamped 25–1000) |
 | `enforce` | `true` | `false` → verdicts are logged and shown to staff, never applied |
@@ -64,6 +64,9 @@ protobuf-java, slf4j and adventure are shaded under `ac.thorium.mc.libs`.
 ```bash
 make run-engine                      # terminal 1: engine with STATIC_SESSIONS token "dev"
 # plugins/Thorium/config.yml: gateway-url: "http://localhost:3100", dev: { session-token: "dev" }
+#   ^ development only. Plain http is accepted here *only* because dev.session-token is set,
+#     which skips gateway auth entirely and so never puts server-token on the wire. Without
+#     that key the plugin logs SEVERE and stays idle rather than connecting over cleartext.
 java -jar paper.jar --nogui          # terminal 2
 ```
 
