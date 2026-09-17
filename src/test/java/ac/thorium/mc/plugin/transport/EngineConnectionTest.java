@@ -139,6 +139,28 @@ class EngineConnectionTest {
         assertNotNull(engine.opened.poll(3, TimeUnit.SECONDS));
     }
 
+    @Test void stopDoesNotWaitOutABlockedNetworkThread() throws Exception {
+        // stop() runs on the server's main thread, from onDisable and from
+        // /thorium reconnect. Here the network thread is stuck where it really
+        // gets stuck - inside the gateway auth request, which has a ten-second
+        // timeout - and the server may not be made to wait for it.
+        CountDownLatch inAuth = new CountDownLatch(1);
+        ConnectionConfig cfg = new ConnectionConfig("https://127.0.0.1:1", "", "0.1.0").timings(50, 200, 1000, 1000, 400);
+        TokenSource blocked = () -> {
+            inAuth.countDown();
+            try { Thread.sleep(30_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            return "sess";
+        };
+        conn = new EngineConnection(cfg, blocked, () -> Hello.newBuilder().setProtocol(1).build(), rec, Logger.getLogger("test"));
+        conn.start();
+        assertTrue(inAuth.await(3, TimeUnit.SECONDS));
+        long t0 = System.nanoTime();
+        conn.stop();
+        long ms = (System.nanoTime() - t0) / 1_000_000L;
+        assertTrue(ms < 1500, "stop() held its caller for " + ms + " ms");
+        assertEquals(ConnectionState.STOPPED, conn.state());
+    }
+
     @Test void outdatedCloseHoldsThenReconnectNowBreaksHold() throws Exception {
         connect("");
         WebSocket ws = ready();

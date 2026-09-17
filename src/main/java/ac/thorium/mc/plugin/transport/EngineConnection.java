@@ -91,6 +91,17 @@ public final class EngineConnection {
         t.start();
     }
 
+    /**
+     * How long {@link #stop()} will hold its caller, twice over.
+     *
+     * <p>It is called on the server's main thread: by onDisable, and by
+     * /thorium reconnect. The network thread is usually gone the moment it is
+     * woken, but it can be inside connectBlocking or the gateway's HTTP auth,
+     * both of which have ten-second timeouts of their own - and forty ticks of
+     * a stalled server is not a price a plugin gets to charge for a command.
+     */
+    private static final long STOP_JOIN_MS = 250;
+
     public void stop() {
         Thread t;
         synchronized (this) {
@@ -100,7 +111,18 @@ public final class EngineConnection {
         }
         closeClient(1000, "plugin disabled");
         wakeUp();
-        if (t != null) { try { t.join(2000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
+        if (t != null) {
+            try {
+                t.join(STOP_JOIN_MS);
+                // Still blocked on a socket or on the auth request. It is a
+                // daemon thread with running already false: it cannot reconnect
+                // and it cannot hold the JVM open, so ask it to leave and let it
+                // finish on its own time rather than on the server's.
+                if (t.isAlive()) { t.interrupt(); t.join(STOP_JOIN_MS); }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
         setState(ConnectionState.STOPPED);
     }
 
