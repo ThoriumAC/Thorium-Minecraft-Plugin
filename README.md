@@ -47,10 +47,12 @@ Drop the jar in `plugins/`, start the server once to generate
 `plugins/Thorium/config.yml`, set `server-token` from your dashboard, restart.
 Full configuration reference in [docs/plugin.md](docs/plugin.md).
 
-Requires Java 17+ at runtime on modern servers (the jar itself is Java 8
-bytecode) and a Paper, Spigot or Folia server. packetevents, Java-WebSocket,
-protobuf and slf4j are shaded into the jar under `ac.thorium.mc.libs`, so
-nothing conflicts with other plugins.
+Runs on Paper, Spigot or Folia, on Java 8 or newer: the jar is Java 8
+bytecode, so it loads on a 1.8 server running Java 8 and on a current
+Paper running Java 21 alike. What the server software itself requires is
+a separate matter. packetevents, Java-WebSocket, protobuf and slf4j are
+shaded into the jar under `ac.thorium.mc.libs`, so nothing conflicts with
+other plugins.
 
 ## Build
 
