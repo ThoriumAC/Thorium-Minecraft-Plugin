@@ -5,6 +5,7 @@ import ac.thorium.mc.proto.Section;
 import ac.thorium.mc.proto.SectionChanges;
 import ac.thorium.mc.proto.SectionPos;
 import ac.thorium.mc.proto.UpStream;
+import ac.thorium.mc.proto.WorldBounds;
 import ac.thorium.mc.proto.WorldChunk;
 import ac.thorium.mc.proto.WorldDelta;
 import ac.thorium.mc.proto.WorldPolicy;
@@ -137,6 +138,17 @@ public final class WorldMirror {
     private int hotColumnsPerRetarget = DEFAULT_HOT_COLUMNS;
     /** When each column was last read from the world, for the hot sweep. */
     private final Map<ColumnPos, Long> columnVerified = new LinkedHashMap<ColumnPos, Long>();
+
+    /**
+     * How far each world extends vertically, and whether the engine has been told.
+     *
+     * <p>The engine cannot work this out for itself. A section below the floor and
+     * a section that has not been streamed yet are the same absence from its
+     * mirror, so without this it has to call a player under the world unplaceable
+     * and leave them alone - which is exactly where a ground spoof puts them.
+     */
+    private final Map<String, WorldBounds> bounds = new LinkedHashMap<String, WorldBounds>();
+    private boolean boundsPending;
     private long droppedChanges;
     private long changeSeq;
     /** Main-thread (or region-thread) time spent inside getChunkSnapshot. */
@@ -172,6 +184,21 @@ public final class WorldMirror {
         syncing = true;
     }
 
+    /**
+     * Records a world's vertical extent, to be sent with the next chunk frame.
+     *
+     * <p>Only a change is sent. These are read off every snapshot, which is
+     * thousands of times a minute for a handful of worlds that never move.
+     */
+    public synchronized void bounds(String dimension, int minY, int maxY) {
+        if (dimension == null || dimension.isEmpty() || maxY <= minY) return;
+        WorldBounds b = WorldBounds.newBuilder().setDimension(dimension).setMinY(minY).setMaxY(maxY).build();
+        WorldBounds had = bounds.get(dimension);
+        if (b.equals(had)) return;
+        bounds.put(dimension, b);
+        boundsPending = true;
+    }
+
     /** Forgets everything without arming a sync (streaming turned off, or the pipeline stopped). */
     public synchronized void clear() { clearLocked(); }
 
@@ -185,6 +212,9 @@ public final class WorldMirror {
         fullSyncPending = false;
         syncing = false;
         retargeted = false;
+        // Bounds are not forgotten - they describe the server's worlds, not this
+        // sync - but the engine that is about to drop its model needs them again.
+        boundsPending = !bounds.isEmpty();
     }
 
     /**
@@ -419,10 +449,11 @@ public final class WorldMirror {
         // A full sync is complete once every wanted column has been snapshotted and
         // every section it produced has gone out.
         boolean done = syncing && retargeted && pendingColumns.isEmpty() && outbox.isEmpty();
-        if (chunk == null && (start || done)) chunk = WorldChunk.newBuilder();
+        if (chunk == null && (start || done || boundsPending)) chunk = WorldChunk.newBuilder();
         if (chunk != null) {
             if (start) chunk.setFullSyncStart(true);
             if (done) { chunk.setFullSyncDone(true); syncing = false; }
+            if (boundsPending) { chunk.addAllBounds(bounds.values()); boundsPending = false; }
             frames.add(UpStream.newBuilder().setWorldChunk(chunk).build());
         }
 

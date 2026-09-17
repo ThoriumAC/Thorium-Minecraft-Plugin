@@ -44,6 +44,23 @@ message Section {
   string biome = 5;
 }
 
+// How far a world extends vertically, so the engine can tell a section it was
+// never sent from a section that cannot exist.
+//
+// Both are simply absent from the mirror. Without this the engine must call
+// either one "unknown" and leave the player alone, which means a player under
+// the world floor is a player nothing judges - and being somewhere the server
+// has no blocks is the entire method of a ground spoof. The plugin has always
+// known these bounds; it just never said them.
+//
+// A plugin that does not send them leaves the engine exactly where it was:
+// absent is unknown, and unknown is left alone.
+message WorldBounds {
+  string dimension = 1;
+  sint32 min_y = 2;  // lowest block y in this world
+  sint32 max_y = 3;  // one past the highest block y
+}
+
 // Sections streamed to the engine. The initial sync after a connection becomes
 // ready sends these in budgeted batches; sections a player later walks into
 // arrive the same way.
@@ -51,6 +68,9 @@ message WorldChunk {
   repeated Section sections = 1;
   bool full_sync_start = 2;  // engine drops any existing model for this server first
   bool full_sync_done = 3;   // the initial sync finished; the model is complete
+  // The vertical extent of every world this connection has streamed from. Sent
+  // whenever it changes, which in practice is the first frame carrying a world.
+  repeated WorldBounds bounds = 4;
 }
 
 message BlockChange {

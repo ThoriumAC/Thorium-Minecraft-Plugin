@@ -421,4 +421,55 @@ class WorldMirrorTest {
         drain();
         assertFalse(m.hasWork());
     }
+
+    /**
+     * The engine is told where a world ends, once, and again whenever it is about
+     * to drop its model.
+     *
+     * <p>Without this the engine cannot tell a section it was never sent from one
+     * that cannot exist, so a player under the world floor is a player nothing
+     * judges - and that is precisely where a ground spoof stands.
+     */
+    @Test
+    void boundsAreSentOnceAndResentOnAFullSync() {
+        m.bounds("overworld", -64, 320);
+        WorldChunk first = chunkOf(drain());
+        assertNotNull(first, "no frame carried the bounds");
+        assertEquals(1, first.getBoundsCount());
+        assertEquals("overworld", first.getBounds(0).getDimension());
+        assertEquals(-64, first.getBounds(0).getMinY());
+        assertEquals(320, first.getBounds(0).getMaxY());
+
+        // Unchanged bounds are read off every snapshot; they must not be resent.
+        m.bounds("overworld", -64, 320);
+        assertNull(chunkOf(drain()), "resent bounds that had not changed");
+
+        // A fresh sync drops the engine's model, so it needs them again.
+        m.reset();
+        WorldChunk again = chunkOf(drain());
+        assertNotNull(again);
+        assertTrue(again.getFullSyncStart());
+        assertEquals(1, again.getBoundsCount());
+
+        // A second world is its own entry, and both go together.
+        m.bounds("the_nether", 0, 256);
+        WorldChunk both = chunkOf(drain());
+        assertNotNull(both);
+        assertEquals(2, both.getBoundsCount());
+    }
+
+    /**
+     * Nonsense bounds are dropped rather than put on the wire. The frame itself
+     * still goes: enabling the mirror armed a full sync, and that is not this
+     * test's business.
+     */
+    @Test
+    void boundsMustDescribeARealWorld() {
+        m.bounds("", -64, 320);
+        m.bounds("overworld", 320, 320);
+        m.bounds(null, -64, 320);
+        WorldChunk c = chunkOf(drain());
+        assertNotNull(c);
+        assertEquals(0, c.getBoundsCount(), "sent bounds for a world that cannot exist");
+    }
 }

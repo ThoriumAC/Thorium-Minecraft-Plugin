@@ -180,6 +180,8 @@ public final class WorldSampler {
         if (want.isEmpty()) return;
         final int minSy = SnapshotReader.minSectionY(w);
         final int maxSy = SnapshotReader.maxSectionY(w);
+        // The engine needs where this world ends, not just what is in it.
+        mirror.bounds(c.dimension, SnapshotReader.minHeight(w), w.getMaxHeight());
         final String columnKey = c.dimension + ":" + c.x + "," + c.z;
         // Copying biomes costs main-thread time in getChunkSnapshot, and a column's
         // biome does not change. Ask for it the first time the column is read and
