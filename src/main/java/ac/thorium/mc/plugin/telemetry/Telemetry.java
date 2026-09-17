@@ -218,7 +218,17 @@ public final class Telemetry implements HelloSupplier {
         // would pay for it 48000 times.
         if (!connected() || !world.hasWork()) return;
         for (UpStream u : world.drain(System.currentTimeMillis(), tick.get(), 0)) {
-            if (!send(u)) break;
+            if (send(u)) continue;
+            // drain() has already taken these sections out of the outbox and
+            // cleared the deltas they carried, so a frame that does not go out
+            // is gone. Breaking left the engine's model quietly short - missing
+            // exactly the blocks we thought we had sent - until the two-minute
+            // verify sweep happened across them, and a check that judges a
+            // player against ground the engine cannot see is what that costs.
+            // Dropping the whole mirror and resyncing is the cheap, correct
+            // answer: it is one flag and the sampler refills at its own budget.
+            world.reset();
+            return;
         }
     }
 
