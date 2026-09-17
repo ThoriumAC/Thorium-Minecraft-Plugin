@@ -4,6 +4,7 @@ import ac.thorium.mc.plugin.compat.ErrorGate;
 import ac.thorium.mc.plugin.compat.Scheduler;
 import ac.thorium.mc.plugin.compat.ServerCompat;
 import ac.thorium.mc.plugin.config.PluginConfig;
+import ac.thorium.mc.plugin.transport.ConnectionState;
 import ac.thorium.mc.plugin.transport.EngineConnection;
 import ac.thorium.mc.plugin.transport.HelloSupplier;
 import ac.thorium.mc.plugin.capture.SampleFactory;
@@ -171,7 +172,7 @@ public final class Telemetry implements HelloSupplier {
 
     /** One latency probe per player per second: cheap, and gives the engine a per-player RTT it can trust. */
     private void probeAll() {
-        if (!transactionsEnabled || conn.state() != ac.thorium.mc.plugin.transport.ConnectionState.READY) return;
+        if (!transactionsEnabled || !connected()) return;
         for (Player p : players.values()) {
             if (!p.isOnline()) continue;
             if (transactions.pending(p.getUniqueId()) > 64) continue;   // client not answering; don't pile up
@@ -212,7 +213,10 @@ public final class Telemetry implements HelloSupplier {
      * this only serializes and writes them.
      */
     private void flushWorld() {
-        if (!world.hasWork()) return;
+        // Nothing to send it to: with the engine away every frame built here is
+        // built to be thrown away, and the 1-hour hold after a CLOSE_OUTDATED
+        // would pay for it 48000 times.
+        if (!connected() || !world.hasWork()) return;
         for (UpStream u : world.drain(System.currentTimeMillis(), tick.get(), 0)) {
             if (!send(u)) break;
         }
@@ -325,6 +329,16 @@ public final class Telemetry implements HelloSupplier {
         buffer.setEnabledCategories(policy.getEnabledCategoriesList());
         world.setPolicy(policy.getWorld());
     }
+
+    /**
+     * Whether there is an engine on the other end right now.
+     *
+     * <p>The per-tick work this plugin does - world snapshots, context
+     * refreshes, frame building - exists to feed a connection. While there is
+     * none it is pure cost to the customer, so everything on a timer checks
+     * this first.
+     */
+    public boolean connected() { return conn.state() == ConnectionState.READY; }
 
     /** Arms a fresh world sync: whatever the engine held is gone with the connection. */
     public void onDisconnected() { buffer.clear(); world.reset(); }

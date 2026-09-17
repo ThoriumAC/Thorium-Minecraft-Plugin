@@ -167,7 +167,7 @@ public final class ThoriumPlugin extends JavaPlugin {
         // When the engine is mirroring the world it derives the block flags itself,
         // so the context tracker can skip its per-tick block reads entirely.
         ContextTracker contexts = new ContextTracker(sched, compat, gate,
-                () -> telemetry == null ? 0L : telemetry.tick(), world::enabled);
+                () -> telemetry == null ? 0L : telemetry.tick(), world::enabled, this::engineReady);
         ConnectionConfig ccfg = new ConnectionConfig(cfg.gatewayUrl, cfg.devSessionToken, version);
         TokenSource tokens = new SessionAuth(cfg.gatewayUrl, cfg.serverToken, version, 10_000);
         connection = new EngineConnection(ccfg, tokens, () -> telemetry.buildHello(), new Handler(), getLogger());
@@ -189,11 +189,22 @@ public final class ThoriumPlugin extends JavaPlugin {
         // so upgrading the plugin never costs a server TPS on its own.
         worldEvents = new WorldBlockEvents(world, gate);
         getServer().getPluginManager().registerEvents(worldEvents, this);
-        worldSampler = new WorldSampler(world, sched, gate, getServer());
+        worldSampler = new WorldSampler(world, sched, gate, getServer(), this::engineReady);
         worldSampler.start();
         for (Player p : getServer().getOnlinePlayers()) telemetry.track(p);
         telemetry.start();
         connection.start();
+    }
+
+    /**
+     * Whether an engine is connected right now.
+     *
+     * <p>Read on every tick by the world sampler and by each player's context
+     * task, so that the work they do stops when there is nobody to send it to.
+     */
+    private boolean engineReady() {
+        EngineConnection c = connection;
+        return c != null && c.state() == ConnectionState.READY;
     }
 
     private void stopPipeline() {

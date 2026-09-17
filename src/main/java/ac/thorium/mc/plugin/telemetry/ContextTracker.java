@@ -39,14 +39,25 @@ public final class ContextTracker {
     private final LongSupplier tick;
     /** True while the engine mirrors the world and derives the block flags itself. */
     private final BooleanSupplier worldStreamed;
+    /**
+     * True while an engine is connected.
+     *
+     * <p>This is one repeating 1-tick task per online player, each doing a
+     * getNearbyEntities, a TPS read, the potion and inventory reads and - when
+     * the world is not mirrored - a dozen getBlockAt calls, twenty times a
+     * second. None of it is worth anything with nothing to send it to.
+     */
+    private final BooleanSupplier connected;
     private final Map<UUID, PlayerContext> contexts = new ConcurrentHashMap<>();
     /** Server-thread nanos spent building contexts, and how many were built. */
     private final java.util.concurrent.atomic.AtomicLong snapNanos = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicLong snapCount = new java.util.concurrent.atomic.AtomicLong();
     private final Map<UUID, Object> tasks = new ConcurrentHashMap<>();
 
-    public ContextTracker(Scheduler sched, ServerCompat compat, ErrorGate gate, LongSupplier tick, BooleanSupplier worldStreamed) {
-        this.sched = sched; this.compat = compat; this.gate = gate; this.tick = tick; this.worldStreamed = worldStreamed;
+    public ContextTracker(Scheduler sched, ServerCompat compat, ErrorGate gate, LongSupplier tick,
+                          BooleanSupplier worldStreamed, BooleanSupplier connected) {
+        this.sched = sched; this.compat = compat; this.gate = gate; this.tick = tick;
+        this.worldStreamed = worldStreamed; this.connected = connected;
     }
 
     public void start(Player p) {
@@ -55,6 +66,7 @@ public final class ContextTracker {
         contexts.put(id, PlayerContext.UNKNOWN);
         Object handle = sched.runPlayerTimer(p, () -> gate.run("context", () -> {
             if (!p.isOnline()) { stop(p); return; }
+            if (!connected.getAsBoolean()) return;
             long t0 = System.nanoTime();
             PlayerContext ctx = snapshot(p);
             snapNanos.addAndGet(System.nanoTime() - t0);

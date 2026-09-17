@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 /**
  * Keeps the mirror fed. Runs a tick timer that decides which sections should be
@@ -56,6 +57,16 @@ public final class WorldSampler {
     private final Scheduler sched;
     private final ErrorGate gate;
     private final Server server;
+    /**
+     * Whether the engine is there to receive any of this.
+     *
+     * <p>The mirror's {@code enabled} flag only ever changes on an IngestPolicy,
+     * so a disconnect leaves it on: without this check the sampler went on
+     * taking chunk snapshots on the server thread and feeding the decoders for
+     * as long as the engine was away - a whole hour of it after the gateway
+     * closes with CLOSE_OUTDATED - with nothing at the far end.
+     */
+    private final BooleanSupplier connected;
 
     private Object tickTask;
     private long ticks;
@@ -70,11 +81,12 @@ public final class WorldSampler {
             new java.util.concurrent.ConcurrentHashMap<String, String>();
     private volatile boolean calibrated;
 
-    public WorldSampler(WorldMirror mirror, Scheduler sched, ErrorGate gate, Server server) {
+    public WorldSampler(WorldMirror mirror, Scheduler sched, ErrorGate gate, Server server, BooleanSupplier connected) {
         this.mirror = mirror;
         this.sched = sched;
         this.gate = gate;
         this.server = server;
+        this.connected = connected;
     }
 
     public void start() {
@@ -98,7 +110,7 @@ public final class WorldSampler {
     }
 
     private void tick() {
-        if (!mirror.enabled()) return;
+        if (!mirror.enabled() || !connected.getAsBoolean()) return;
         ticks++;
         if (ticks % RETARGET_EVERY_TICKS == 0) {
             mirror.retarget(wantedSections(), occupiedColumns(), ticks);
