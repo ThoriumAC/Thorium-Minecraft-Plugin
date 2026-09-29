@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+import "thorium/mc/v1/common.proto";
+import "thorium/mc/v1/packets.proto";
+import "thorium/mc/v1/verdict.proto";
+import "thorium/mc/v1/world.proto";
+
+// Every WebSocket binary frame from the plugin is exactly one UpStream.
+message UpStream {
+  oneof msg {
+    Hello hello = 1;
+    Batch batch = 2;
+    Heartbeat heartbeat = 3;
+    PlayerEvent player_event = 4;
+    WorldChunk world_chunk = 5;
+    WorldDelta world_delta = 6;
+    Report report = 7;
+    Activity activity = 8;
+  }
+}
+
+// Every WebSocket binary frame from the engine is exactly one DownStream.
+// Frames whose first byte is < 0x08 are gateway control frames, not DownStream.
+message DownStream {
+  oneof msg {
+    HelloAck hello_ack = 1;
+    Verdict verdict = 2;
+    Control control = 3;
+    Mitigate mitigate = 4;
+    NetworkConfig config = 5;         // sent again whenever the network's settings change
+  }
+}
+
+message Hello {
+  string plugin_version = 1;
+  string mc_version = 2;
+  ServerSoftware software = 3;
+  uint32 protocol = 4;              // wire protocol version: 1 legacy, 2 raw tap
+  repeated PlayerRef roster = 5;    // players online at connect time
+  // Set only in an evidence capture: when the verdict it was recorded for was
+  // issued. A plugin never sends it.
+  int64 flagged_at_ms = 6;
+}
+
+message HelloAck {
+  bool accepted = 1;
+  string reject_reason = 2;
+  bytes server_id = 3;
+  bytes organization_id = 4;
+  IngestPolicy policy = 5;
+  NetworkConfig config = 6;
+}
+
+// Settings the network owns on the dashboard. They override the plugin's local config.
+message NetworkConfig {
+  bool send_ips = 1;
+  bool reports_enabled = 2;
+  string kick_message = 3;          // empty: the plugin's own kick-format
+  string ban_message = 4;           // empty: the plugin's own ban reason
+  bool advanced_analytics = 5;      // record Activity; off means the plugin sends none
+}
+
+// Server-confirmed player interactions, batched, sent only while advanced_analytics is on.
+// Analytics, not detection: nothing here is judged.
+message Activity {
+  repeated ActivityEvent events = 1;
+}
+
+message ActivityEvent {
+  PlayerRef player = 1;
+  int64 at_ms = 2;
+  string kind = 3;        // block_break, block_place, kill, death, shoot, projectile, item_use, consume, drop, pickup, craft, fish, enchant
+  string subject = 4;     // the block, item or entity type involved
+  string detail = 5;      // e.g. the weapon for a kill, the cause of a death
+  PlayerRef target = 6;   // the other player, when there is one
+  string world = 7;
+  Vec3 position = 8;
+  double amount = 9;      // stack size, bow force, experience level
+}
+
+// A player's /report of another player.
+message Report {
+  PlayerRef reporter = 1;
+  PlayerRef suspect = 2;
+  string reason = 3;
+}
+
+message Batch {
+  int64 sent_at_ms = 1;
+  repeated PlayerBatch players = 2;
+  int64 server_tick = 3;             // server tick at flush
+  double tps = 4;
+  double mspt = 5;
+}
+
+message PlayerBatch {
+  PlayerRef player = 1;
+  repeated Sample samples = 2;
+  ServerMeta meta = 3;               // gamemode, dimension, world, ping_ms, dead, sleeping only
+  // When set, every Sample.client_time_ms and Sample.tick in this batch is an
+  // offset from base_time_ms and base_tick. Sent only when
+  // IngestPolicy.relative_sample_times asked for it.
+  bool relative_times = 4;
+  int64 base_time_ms = 5;
+  int64 base_tick = 6;
+}
+
+message Heartbeat {
+  int64 client_time_ms = 1;
+  int32 online_players = 2;
+  double tps = 3;
+  double mspt = 4;
+}
+
+message PlayerEvent {
+  PlayerRef player = 1;
+  int64 client_time_ms = 2;
+  int64 tick = 3;
+  oneof kind {
+    Join join = 10;
+    Quit quit = 11;
+    Teleport teleport = 12;
+    Velocity velocity = 13;
+    Damage damage = 14;
+    GamemodeChange gamemode = 15;
+    WorldChange world = 16;
+    Respawn respawn = 17;
+    Boost boost = 18;
+  }
+}
+
+message Join {
+  string ip = 1;                 // empty unless the org allows IPs
+  int32 protocol_version = 2;
+  string brand = 3;
+  int32 gamemode = 4;
+  int32 entity_id = 5;           // the player's own entity id
+}
+message Quit { string reason = 1; }
+message Teleport { Vec3 to = 1; Look look = 2; string cause = 3; }
+message Velocity { Vec3 velocity = 1; }
+message Damage { string cause = 1; double amount = 2; double fall_distance = 3; }
+message GamemodeChange { int32 gamemode = 1; }
+message WorldChange { string dimension = 1; }
+message Respawn {}
+// A self-applied push: a firework rocket while gliding, or a riptide trident.
+message Boost { string source = 1; }   // "firework" | "riptide"
+
+message Control {
+  oneof kind {
+    IngestPolicy policy = 1;
+    Disconnect disconnect = 2;
+    PluginUpdate update = 3;
+    Resync resync = 4;
+  }
+}
+
+message IngestPolicy {
+  int32 flush_interval_ms = 1;
+  repeated string enabled_categories = 2;  // movement, combat, block, inventory, client
+  WorldPolicy world = 3;
+  bool relative_sample_times = 4;  // the engine accepts PlayerBatch.relative_times
+}
+message Disconnect { string reason = 1; bool reconnect = 2; int32 backoff_ms = 3; }
+message PluginUpdate { string version = 1; string download_url = 2; string sha256 = 3; }
+message Resync {}
+
+// Engine-driven mitigation.
+message Mitigate {
+  PlayerRef player = 1;
+  oneof kind {
+    Setback setback = 10;
+    CancelWindow cancel = 11;
+    ResyncBlocks blocks = 12;
+  }
+}
+message Setback { Vec3 position = 1; Look look = 2; bool keep_look = 3; }
+message CancelWindow { int32 ticks = 1; }
+message ResyncBlocks { string dimension = 1; sint32 sx = 2; sint32 sy = 3; sint32 sz = 4; }

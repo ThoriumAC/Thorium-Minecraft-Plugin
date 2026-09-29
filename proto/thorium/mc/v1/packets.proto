@@ -1,0 +1,330 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+import "thorium/mc/v1/common.proto";
+
+message Sample {
+  int64 client_time_ms = 1;   // plugin wall clock at capture
+  int64 tick = 2;             // server tick at capture
+  ServerMeta meta = 3;        // v1 only; v2 plugins leave it unset and fill PlayerBatch.meta
+  uint32 seq = 4;             // v2: per-player monotonic packet counter, wraps
+
+  oneof kind {
+    MovementSample movement = 10;
+    CombatSample combat = 11;
+    BlockSample block = 12;
+    InventorySample inventory = 13;
+    RotationSample rotation = 14;
+    ClientSample client = 15;
+    TransactionSample transaction = 16;
+    InputSample input = 17;
+    TickEndSample tick_end = 18;
+    EntityActionSample entity_action = 19;
+    AbilitiesSample abilities = 20;
+    KeepAliveSample keep_alive = 21;
+    UseItemSample use_item = 22;
+    HeldSlotSample held_slot = 23;
+    VehicleMoveSample vehicle_move = 24;
+    PaddleSample paddle = 25;
+    ClientStatusSample client_status = 26;
+    SettingsSample settings = 27;
+    SpectateSample spectate = 28;
+    TextSample text = 29;
+    OtherSample other = 30;
+    Outbound outbound = 31;
+  }
+}
+
+// Transaction markers give the engine exact ordering between server-side state
+// changes and the client's movement stream. The plugin writes a ping right after a
+// knockback/explosion/teleport packet (SENT) and streams the client's echo (ACK) at
+// its position in the sample stream; PROBE pings measure round-trip time only.
+enum TransactionPhase {
+  TRANSACTION_PHASE_UNSPECIFIED = 0;
+  TRANSACTION_PHASE_SENT = 1;
+  TRANSACTION_PHASE_ACK = 2;
+}
+
+enum TransactionCause {
+  TRANSACTION_CAUSE_UNSPECIFIED = 0;
+  TRANSACTION_CAUSE_VELOCITY = 1;    // ENTITY_VELOCITY for the player's own entity
+  TRANSACTION_CAUSE_EXPLOSION = 2;   // EXPLOSION carrying player motion
+  TRANSACTION_CAUSE_TELEPORT = 3;    // PLAYER_POSITION_AND_LOOK; the ACK is the client's TELEPORT_CONFIRM
+  TRANSACTION_CAUSE_PROBE = 4;       // periodic latency probe
+  TRANSACTION_CAUSE_TICK = 5;        // v2: one per server tick per player
+  TRANSACTION_CAUSE_OUTBOUND = 6;    // v2: fences the outbound sample at fences_seq
+}
+
+message TransactionSample {
+  int32 id = 1;
+  TransactionPhase phase = 2;
+  TransactionCause cause = 3;
+  int64 rtt_ms = 4;                  // ACK only: plugin-measured SENT→ACK round trip
+  uint32 fences_seq = 5;             // v2, OUTBOUND cause: seq of the outbound sample this fences
+}
+
+message MovementSample {
+  Vec3 position = 1;
+  Look look = 2;
+  bool has_position = 3;
+  bool has_look = 4;
+  bool on_ground = 5;
+  bool sprinting = 6;             // v1 only (trailing flag); v2 sends entity_action instead
+  bool sneaking = 7;              // v1 only
+  bool horizontal_collision = 8;  // client reported bumping into a wall this tick (1.21.3+ only)
+  int32 teleport_id = 9;          // v2: non-zero when this is the confirm move for a teleport
+  bool cancelled = 10;            // v2: the mitigator dropped this packet; the server never applied it
+}
+
+message RotationSample {
+  Look look = 1;
+  bool on_ground = 2;
+}
+
+enum CombatAction {
+  COMBAT_ACTION_UNSPECIFIED = 0;
+  COMBAT_ACTION_ATTACK = 1;
+  COMBAT_ACTION_SWING = 2;
+  COMBAT_ACTION_INTERACT = 3;
+}
+
+enum CombatInteract {
+  COMBAT_INTERACT_UNSPECIFIED = 0;
+  COMBAT_INTERACT_ATTACK = 1;
+  COMBAT_INTERACT_INTERACT = 2;
+  COMBAT_INTERACT_INTERACT_AT = 3;
+}
+
+message CombatSample {
+  CombatAction action = 1;
+  int32 target_entity_id = 2;
+  PlayerRef target = 3;          // set when the target is a player
+  Vec3 attacker_position = 4;    // feet
+  Look attacker_look = 5;
+  Vec3 target_position = 6;      // v1 only: server-side feet position at attack time
+  float target_width = 7;        // v1 only: hitbox width (0.6 for players)
+  float target_height = 8;       // v1 only: hitbox height (1.8 standing, 1.5 sneaking)
+  bool target_is_player = 9;
+  CombatInteract interact = 10;  // v2
+  int32 hand = 11;               // v2
+  Vec3 cursor = 12;              // v2, INTERACT_AT only
+  bool sneaking = 13;            // v2, 1.16+ packet flag
+}
+
+enum BlockAction {
+  BLOCK_ACTION_UNSPECIFIED = 0;
+  BLOCK_ACTION_DIG_START = 1;
+  BLOCK_ACTION_DIG_ABORT = 2;
+  BLOCK_ACTION_DIG_FINISH = 3;
+  BLOCK_ACTION_PLACE = 4;
+  BLOCK_ACTION_DROP_ITEM = 5;        // v2
+  BLOCK_ACTION_DROP_STACK = 6;       // v2
+  BLOCK_ACTION_RELEASE_USE_ITEM = 7; // v2
+  BLOCK_ACTION_SWAP_HANDS = 8;       // v2
+}
+
+message BlockSample {
+  BlockAction action = 1;
+  int32 x = 2;
+  int32 y = 3;
+  int32 z = 4;
+  int32 face = 5;
+  string block_id = 6;             // v1 only
+  Look look = 7;
+  Vec3 player_position = 8;
+  int32 expected_break_ticks = 9;  // v1 only: server-computed on DIG_START
+  bool sneaking = 10;              // v1 only
+  bool sprinting = 11;             // v1 only
+  int32 sequence = 12;             // v2
+  int32 hand = 13;                 // v2
+  Vec3 cursor = 14;                // v2, PLACE only
+  bool inside_block = 15;          // v2, PLACE only
+  bool world_border_hit = 16;      // v2, PLACE only (1.21.x)
+}
+
+message InventorySample {
+  int32 window_id = 1;
+  int32 slot = 2;
+  int32 button = 3;
+  string action = 4;     // CLICK, DROP, SWAP, CLOSE, CREATIVE_SET
+  int32 click_type = 5;  // v2: WindowClickType ordinal
+  int32 state_id = 6;    // v2
+  int32 changed_slots = 7;  // v2
+  bool has_carried = 8;     // v2
+}
+
+message ClientSample {
+  string brand = 1;
+  repeated string channels = 2;
+  int32 protocol_version = 3;
+  int32 length = 4;                   // v2: payload bytes, sent only for an oversized plugin message
+}
+
+// ---- v2 additions ----
+
+message InputSample {                 // PLAYER_INPUT (1.21.2+) or STEER_VEHICLE (legacy)
+  bool forward = 1;
+  bool backward = 2;
+  bool left = 3;
+  bool right = 4;
+  bool jump = 5;
+  bool shift = 6;
+  bool sprint = 7;
+  float legacy_forward = 8;           // STEER_VEHICLE floats, pre-1.21.2
+  float legacy_sideways = 9;
+  bool legacy_unmount = 10;
+}
+
+message TickEndSample {}              // CLIENT_TICK_END (1.21.2+)
+
+enum EntityActionKind {
+  ENTITY_ACTION_UNSPECIFIED = 0;
+  ENTITY_ACTION_START_SNEAK = 1;
+  ENTITY_ACTION_STOP_SNEAK = 2;
+  ENTITY_ACTION_LEAVE_BED = 3;
+  ENTITY_ACTION_START_SPRINT = 4;
+  ENTITY_ACTION_STOP_SPRINT = 5;
+  ENTITY_ACTION_START_JUMP_HORSE = 6;
+  ENTITY_ACTION_STOP_JUMP_HORSE = 7;
+  ENTITY_ACTION_OPEN_HORSE_INVENTORY = 8;
+  ENTITY_ACTION_START_ELYTRA = 9;
+}
+
+message EntityActionSample {
+  EntityActionKind action = 1;
+  int32 jump_boost = 2;
+}
+
+message AbilitiesSample { bool flying = 1; }
+message KeepAliveSample { int64 id = 1; }
+
+message UseItemSample {
+  int32 hand = 1;                     // 0 main, 1 off
+  int32 sequence = 2;
+  bool has_look = 3;
+  Look look = 4;
+}
+
+message HeldSlotSample { int32 slot = 1; }
+
+message VehicleMoveSample {
+  Vec3 position = 1;
+  Look look = 2;
+  bool has_on_ground = 3;
+  bool on_ground = 4;
+}
+
+message PaddleSample { bool left = 1; bool right = 2; }
+message ClientStatusSample { int32 action = 1; }  // 0 respawn, 1 stats
+
+message SettingsSample {
+  int32 view_distance = 1;
+  int32 main_hand = 2;
+  int32 skin_parts = 3;
+}
+
+message SpectateSample { bytes target = 1; }
+
+enum TextKind {
+  TEXT_KIND_UNSPECIFIED = 0;
+  TEXT_KIND_CHAT = 1;
+  TEXT_KIND_COMMAND = 2;
+  TEXT_KIND_TAB_COMPLETE = 3;
+  TEXT_KIND_EDIT_BOOK = 4;
+  TEXT_KIND_NAME_ITEM = 5;
+}
+
+message TextSample {
+  TextKind kind = 1;
+  int32 length = 2;                   // bytes of the largest text field
+  int32 pages = 3;
+  bool signed = 4;
+}
+
+message OtherSample { int32 packet_id = 1; string name = 2; }
+
+// ---- clientbound ----
+
+message EntitySpawn {
+  int32 id = 1; bytes uuid = 2; string type = 3;
+  Vec3 position = 4; float yaw = 5; float pitch = 6; float head_yaw = 7; Vec3 velocity = 8;
+}
+message EntityMove { int32 id = 1; Vec3 position = 2; bool on_ground = 3; bool has_look = 4; float yaw = 5; float pitch = 6; }
+message EntityVelocityOut { int32 id = 1; Vec3 velocity = 2; }
+message EntityDestroy { repeated int32 ids = 1; }
+message EntityMetadata {
+  int32 id = 1; int32 pose = 2;
+  bool sneaking = 3; bool sprinting = 4; bool gliding = 5; bool swimming = 6; bool riptiding = 7; bool invisible = 8;
+  bool has_dims = 9; float width = 10; float height = 11; float scale = 12;
+  // Which parts the packet carried; all false from an older plugin, which sent flags and pose together.
+  bool has_flags = 13; bool has_pose = 14; bool has_baby = 15; bool baby = 16; bool has_peek = 17; int32 peek = 18;
+  // A slime's, magma cube's or phantom's size, which scales its box.
+  bool has_size = 19; int32 size = 20;
+}
+message AttributeModifier { double amount = 1; int32 op = 2; }
+message Attribute { string name = 1; double base = 2; repeated AttributeModifier modifiers = 3; }
+message EntityAttributes { int32 id = 1; repeated Attribute attributes = 2; }
+message EntityEffect { int32 id = 1; string effect = 2; int32 amplifier = 3; int32 duration = 4; bool remove = 5; }
+message EquipmentSlot { int32 slot = 1; string item = 2; int32 count = 3; int32 efficiency = 4; bool aqua_affinity = 5; int32 depth_strider = 6; int32 soul_speed = 7; }
+message EntityEquipment { int32 id = 1; repeated EquipmentSlot slots = 2; }
+message Passengers { int32 vehicle = 1; repeated int32 ids = 2; }
+message PlayerPosition { int32 teleport_id = 1; Vec3 position = 2; Look look = 3; int32 relative_flags = 4; bool dismount = 5; }
+message PlayerAbilities { bool may_fly = 1; bool flying = 2; float fly_speed = 3; float walk_speed = 4; bool invulnerable = 5; }
+message GameState { int32 reason = 1; float value = 2; }
+message RespawnOut { string dimension = 1; int32 gamemode = 2; bool keep_all = 3; }
+// The enchantment levels are the same four EquipmentSlot carries. The server
+// never sends equipment packets about a player to that player, so the player's
+// own tool and boots are only ever described here.
+message SlotOut {
+  int32 window = 1; int32 state_id = 2; int32 slot = 3; string item = 4; int32 count = 5;
+  int32 efficiency = 6; bool aqua_affinity = 7; int32 depth_strider = 8; int32 soul_speed = 9;
+  bool enchants_known = 10; // false from a plugin that predates the four fields above
+}
+message WindowItems { int32 window = 1; int32 state_id = 2; repeated SlotOut slots = 3; }
+message OpenWindow { int32 window = 1; string type = 2; }
+message CloseWindowOut { int32 window = 1; }
+message HeldSlotOut { int32 slot = 1; }
+message Cooldown { string item = 1; int32 ticks = 2; }
+// pull: not an explosion but a fishing rod reeling the player in, which the
+// client works out from where it sees the fisher, so only roughly this.
+message ExplosionOut { Vec3 position = 1; float strength = 2; Vec3 motion = 3; bool pull = 4; }
+message WorldBorder { double cx = 1; double cz = 2; double size = 3; double new_size = 4; int64 lerp_ms = 5; }
+message Health { float health = 1; int32 food = 2; float saturation = 3; }
+message KeepAliveOut { int64 id = 1; }
+message BlockChangeOut { int32 x = 1; int32 y = 2; int32 z = 3; string state = 4; }
+// A section's worth of block changes in one packet (/fill, WorldEdit), fenced once.
+message MultiBlockChangeOut { repeated BlockChangeOut blocks = 1; }
+
+message Outbound {
+  oneof kind {
+    EntitySpawn entity_spawn = 1;
+    EntityMove entity_move = 2;
+    EntityVelocityOut entity_velocity = 3;
+    EntityDestroy entity_destroy = 4;
+    EntityMetadata entity_metadata = 5;
+    EntityAttributes entity_attributes = 6;
+    EntityEffect entity_effect = 7;
+    EntityEquipment entity_equipment = 8;
+    Passengers passengers = 9;
+    PlayerPosition player_position = 10;
+    PlayerAbilities player_abilities = 11;
+    GameState game_state = 12;
+    RespawnOut respawn = 13;
+    SlotOut slot = 14;
+    WindowItems window_items = 15;
+    OpenWindow open_window = 16;
+    CloseWindowOut close_window = 17;
+    HeldSlotOut held_slot = 18;
+    Cooldown cooldown = 19;
+    ExplosionOut explosion = 20;
+    WorldBorder world_border = 21;
+    Health health = 22;
+    KeepAliveOut keep_alive = 23;
+    BlockChangeOut block_change = 24;
+    MultiBlockChangeOut multi_block_change = 25;
+  }
+}

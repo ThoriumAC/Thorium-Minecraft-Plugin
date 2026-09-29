@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+// World state streaming. The plugin mirrors the blocks around every tracked
+// player so the engine can run real vanilla collision instead of inferring
+// geometry from the ServerMeta booleans, and so replays and spectate carry
+// terrain. The plugin takes chunk snapshots on the owning thread in a per-tick
+// budget, then packages and sends them from its flush worker.
+
+// A 16x16x16 cube of blocks, addressed in section coordinates (block >> 4).
+message SectionPos {
+  string dimension = 1;
+  sint32 x = 2;
+  sint32 y = 3;
+  sint32 z = 4;
+}
+
+// One section's block states.
+//
+// Palette entries are opaque state strings the engine maps to collision shapes:
+// "minecraft:oak_stairs[facing=north,half=bottom,shape=straight]" on 1.13+, and
+// the legacy "STONE:0" material:data form below that.
+//
+// indices holds 4096 entries in Minecraft's own YZX order, so the entry for a
+// block at section-local (x, y, z) lives at (y << 8) | (z << 4) | x. Each entry
+// is one byte when the palette has 256 or fewer entries and two little-endian
+// bytes otherwise. A uniform section (palette size 1, overwhelmingly the common
+// case for air and stone) carries no indices at all.
+message Section {
+  SectionPos pos = 1;
+  repeated string palette = 2;
+  uint32 bits_per_index = 3;  // 0 (uniform), 8, or 16
+  bytes indices = 4;
+  // Biome at the section's centre, e.g. "minecraft:plains", or empty when the
+  // server cannot report one. Grass, foliage and water are greyscale textures
+  // the client tints by biome, so a viewer without this draws a swamp the same
+  // green as a plain. One name per section is coarse next to the client's
+  // per-block blend, and it costs a short string rather than 4096 of them.
+  string biome = 5;
+}
+
+// How far a world extends vertically, so the engine can tell a section it was
+// never sent from a section that cannot exist.
+//
+// Both are simply absent from the mirror. Without this the engine must call
+// either one "unknown" and leave the player alone, which means a player under
+// the world floor is a player nothing judges - and being somewhere the server
+// has no blocks is the entire method of a ground spoof. The plugin has always
+// known these bounds; it just never said them.
+//
+// A plugin that does not send them leaves the engine exactly where it was:
+// absent is unknown, and unknown is left alone.
+message WorldBounds {
+  string dimension = 1;
+  sint32 min_y = 2;  // lowest block y in this world
+  sint32 max_y = 3;  // one past the highest block y
+}
+
+// Sections streamed to the engine. The initial sync after a connection becomes
+// ready sends these in budgeted batches; sections a player later walks into
+// arrive the same way.
+message WorldChunk {
+  repeated Section sections = 1;
+  bool full_sync_start = 2;  // engine drops any existing model for this server first
+  bool full_sync_done = 3;   // the initial sync finished; the model is complete
+  // The vertical extent of every world this connection has streamed from. Sent
+  // whenever it changes, which in practice is the first frame carrying a world.
+  repeated WorldBounds bounds = 4;
+}
+
+message BlockChange {
+  uint32 offset = 1;  // (y << 8) | (z << 4) | x within the section
+  string block = 2;   // the same state string form as Section.palette
+}
+
+message SectionChanges {
+  SectionPos section = 1;
+  repeated BlockChange changes = 2;
+}
+
+// Block changes since the last delta frame, applied in order. Changes to a
+// section the engine does not hold are ignored; the plugin sends the whole
+// section instead when a player first enters it.
+message WorldDelta {
+  int64 client_time_ms = 1;
+  int64 tick = 2;
+  repeated SectionChanges sections = 3;
+  repeated SectionPos dropped = 4;  // sections the plugin stopped tracking (unloaded or out of range)
+}
+
+// Per-org control over world streaming, delivered in IngestPolicy. Streaming is
+// off unless the engine turns it on, so a plugin upgrade never costs a server
+// TPS until its org opts in.
+message WorldPolicy {
+  bool enabled = 1;
+  uint32 radius_chunks = 2;     // chunk columns around each player to mirror; 0 = engine default
+  uint32 columns_per_tick = 3;  // snapshot budget per tick across all players; 0 = engine default
+}

@@ -1,0 +1,34 @@
+name: Thorium
+version: ${version}
+main: ac.thorium.mc.plugin.ThoriumPlugin
+api-version: 1.13
+folia-supported: true
+author: ThoriumAC
+description: Thorium cloud anti-cheat for Minecraft
+website: https://thorium.ac
+load: POSTWORLD
+commands:
+  thorium:
+    description: Thorium anti-cheat
+    usage: /thorium <status|compat|alerts|reconnect|capture>
+    permission: thorium.use
+  report:
+    description: Report a player to staff
+    usage: /report <player> [reason]
+    permission: thorium.report
+permissions:
+  thorium.report:
+    description: /report other players
+    default: true
+  thorium.use:
+    default: op
+  thorium.admin:
+    description: /thorium status, compat, capture and reconnect
+    default: op
+    children:
+      thorium.use: true
+  thorium.alerts:
+    description: receive in-game Thorium alerts
+    default: op
+    children:
+      thorium.use: true

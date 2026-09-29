@@ -1,0 +1,171 @@
+package ac.thorium.mc.plugin.capture;
+
+import ac.thorium.mc.plugin.compat.ErrorGate;
+import ac.thorium.mc.plugin.telemetry.Names;
+import ac.thorium.mc.plugin.telemetry.Telemetry;
+import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.protocol.player.User;
+import org.bukkit.Location;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.player.*;
+import org.bukkit.util.Vector;
+
+import java.lang.reflect.Method;
+import java.util.Locale;
+
+public final class BukkitEvents implements Listener {
+    private static final Method GLIDING = ac.thorium.mc.plugin.compat.Reflect.method(org.bukkit.entity.LivingEntity.class, "isGliding");
+
+    private final Telemetry telemetry;
+    private final PacketCapture capture;
+    private final ErrorGate gate;
+    private final ac.thorium.mc.plugin.config.NetworkSettings settings;
+
+    public BukkitEvents(Telemetry telemetry, PacketCapture capture, ErrorGate gate, ac.thorium.mc.plugin.config.NetworkSettings settings) {
+        this.telemetry = telemetry; this.capture = capture; this.gate = gate; this.settings = settings;
+    }
+
+    public static int protocol(Player p) {
+        try {
+            User u = PacketEvents.getAPI().getPlayerManager().getUser(p);
+            return u == null ? 0 : u.getClientVersion().getProtocolVersion();
+        } catch (Throwable t) { return 0; }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(PlayerJoinEvent e) {
+        gate.run("event:join", () -> {
+            Player p = e.getPlayer();
+            telemetry.track(p);
+            telemetry.event(p, EventFactory.join(EventFactory.hostAddress(p.getAddress(), settings.sendIps()), protocol(p), "", Names.gamemode(p.getGameMode().name()), p.getEntityId()));
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(PlayerQuitEvent e) {
+        gate.run("event:quit", () -> {
+            Player p = e.getPlayer();
+            telemetry.event(p, EventFactory.quit(""));
+            telemetry.untrack(p);
+            if (capture != null) capture.forget(p.getUniqueId());
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTeleport(PlayerTeleportEvent e) {
+        gate.run("event:teleport", () -> {
+            Player p = e.getPlayer();
+            Location to = e.getTo();
+            if (to == null) return;
+            telemetry.event(p, EventFactory.teleport(to.getX(), to.getY(), to.getZ(), to.getYaw(), to.getPitch(), Names.teleportCause(e.getCause() == null ? null : e.getCause().name())));
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onFish(PlayerFishEvent e) {
+        gate.run("event:fish", () -> {
+            if (e.getState() != PlayerFishEvent.State.CAUGHT_ENTITY || !(e.getCaught() instanceof Player)) return;
+            Location o = e.getPlayer().getLocation(), h = e.getHook().getLocation();
+            OutboundCapture.PULLS.put(e.getCaught().getUniqueId(),
+                    new double[]{(o.getX() - h.getX()) * 0.1, (o.getY() - h.getY()) * 0.1, (o.getZ() - h.getZ()) * 0.1});
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onVelocity(PlayerVelocityEvent e) {
+        gate.run("event:velocity", () -> {
+            Player p = e.getPlayer();
+            Vector v = e.getVelocity();
+            telemetry.event(p, EventFactory.velocity(v.getX(), v.getY(), v.getZ()));
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamage(EntityDamageEvent e) {
+        if (!(e.getEntity() instanceof Player)) return;
+        gate.run("event:damage", () -> {
+            Player p = (Player) e.getEntity();
+            String cause = e.getCause() == null ? "unknown" : e.getCause().name().toLowerCase(Locale.ROOT);
+            telemetry.event(p, EventFactory.damage(cause, e.getFinalDamage(), p.getFallDistance()));
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntityExplode(EntityExplodeEvent e) { explosion(e.getLocation(), e.getYield()); }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockExplode(BlockExplodeEvent e) { explosion(e.getBlock().getLocation(), e.getYield()); }
+
+    private void explosion(Location at, float yield) {
+        gate.run("event:explosion", () -> {
+            double radius = Math.max(4.0, 2.0 * Math.max(1f, yield * 4f));
+            for (Player p : at.getWorld().getPlayers()) {
+                Location pl = p.getLocation();
+                double dx = pl.getX() - at.getX(), dy = pl.getY() + 0.9 - at.getY(), dz = pl.getZ() - at.getZ();
+                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (dist > radius || dist < 1e-6) continue;
+                double k = (1.0 - dist / radius) / dist;
+                telemetry.event(p, EventFactory.velocity(dx * k, dy * k, dz * k));
+            }
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryClick(org.bukkit.event.inventory.InventoryClickEvent e) {
+        if (e.getWhoClicked() instanceof Player) telemetry.inventoryChanged((Player) e.getWhoClicked());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryDrag(org.bukkit.event.inventory.InventoryDragEvent e) {
+        if (e.getWhoClicked() instanceof Player) telemetry.inventoryChanged((Player) e.getWhoClicked());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryClose(org.bukkit.event.inventory.InventoryCloseEvent e) {
+        if (e.getPlayer() instanceof Player) telemetry.inventoryChanged((Player) e.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onGameMode(PlayerGameModeChangeEvent e) {
+        gate.run("event:gamemode", () -> telemetry.event(e.getPlayer(), EventFactory.gamemode(Names.gamemode(e.getNewGameMode().name()))));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onWorld(PlayerChangedWorldEvent e) {
+        gate.run("event:world", () -> {
+            Player p = e.getPlayer();
+            telemetry.event(p, EventFactory.world(Names.dimension(p.getWorld().getEnvironment().name())));
+        });
+    }
+
+    public volatile boolean paperBoosts;
+
+    // Not ignoreCancelled: right clicks on air always arrive cancelled.
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInteract(PlayerInteractEvent e) {
+        if (paperBoosts) return;
+        if (e.getAction() != Action.RIGHT_CLICK_AIR && e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (e.useItemInHand() == org.bukkit.event.Event.Result.DENY) return;
+        if (e.getItem() == null || !e.getItem().getType().name().contains("FIREWORK")) return;
+        gate.run("event:boost", () -> {
+            Player p = e.getPlayer();
+            if (!ac.thorium.mc.plugin.compat.Reflect.bool(GLIDING, p, false)) return;
+            telemetry.event(p, EventFactory.boost("firework"));
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onRespawn(PlayerRespawnEvent e) {
+        gate.run("event:respawn", () -> {
+            telemetry.event(e.getPlayer(), EventFactory.respawn());
+        });
+    }
+}

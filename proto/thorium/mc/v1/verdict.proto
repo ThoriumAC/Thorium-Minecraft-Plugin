@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package thorium.mc.v1;
+
+option java_package = "ac.thorium.mc.proto";
+option java_multiple_files = true;
+
+import "thorium/mc/v1/common.proto";
+
+enum Action {
+  ACTION_UNSPECIFIED = 0;
+  ACTION_FLAG = 1;   // record + staff notify, no player-visible effect
+  ACTION_WARN = 2;
+  ACTION_KICK = 3;
+  ACTION_BAN = 4;
+  ACTION_UNBAN = 5;  // staff only: lift the player's ban on this server
+}
+
+// Engine decision streamed to the plugin.
+message Verdict {
+  PlayerRef player = 1;
+  Action action = 2;
+  string alert_type = 3;   // e.g. "MCSpeed"
+  string reason = 4;
+  double confidence = 5;
+  bool shadow = 6;         // Experimental mode: log only, do not enforce
+  int64 issued_at_ms = 7;
+  bytes alert_id = 8;      // anticheat.alerts.id when persisted
+  double vl = 9;
+  bool staff = 10;         // Issued by a person (dashboard, API, bot): enforce even with enforce: false
+}

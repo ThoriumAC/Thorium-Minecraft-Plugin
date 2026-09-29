@@ -1,0 +1,18 @@
+# Thorium configuration. Full reference: docs/plugin.md
+# org_... network ingest token (needs server-name). Per-server srv_... tokens are retired.
+server-token: ""
+# Server name from the dashboard. Only used with a network token.
+server-name: ""
+# false = log verdicts only; staff alerts still shown.
+enforce: true
+# false = skip setbacks and block resyncs.
+mitigate: true
+# Console command for bans, e.g. "ban %player% %reason%". Empty = Bukkit ban list.
+ban-command: ""
+# Console command for unbans made in the dashboard, e.g. "unban %player%". Empty = Bukkit ban list.
+unban-command: ""
+send-ip: false
+# & colour codes. Placeholders: %player% %check% %vl% %confidence% %reason% %action%
+alert-format: "&8[&cThorium&8] &f%player% &7failed &e%check% &7(VL %vl%, %confidence%%)"
+warn-format: "&c[Thorium] &fSuspicious activity detected (%check%). This is a warning."
+kick-format: "&cKicked by Thorium anti-cheat\n&7%reason%"

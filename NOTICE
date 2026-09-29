@@ -1,0 +1,20 @@
+Thorium Minecraft plugin
+Copyright 2026 Thorium Anti-Cheat Solutions LLC
+
+The source code in this repository is licensed under the Apache License 2.0
+(see LICENSE).
+
+The release jar bundles these libraries under their own licenses. Their texts
+are in licenses/ here and in META-INF/licenses/ inside the jar.
+
+  packetevents          retrooper        GPL-3.0
+  adventure             KyoriPowered     MIT
+  examination           KyoriPowered     MIT
+  Java-WebSocket        Nathan Rajlich   MIT
+  Protocol Buffers      Google           BSD-3-Clause
+  SLF4J                 QOS.ch           MIT
+
+Because it includes packetevents, the release jar as a whole is distributed
+under the GNU General Public License v3.0. Its corresponding source is this
+repository at the matching release tag, plus the published source of the
+libraries above.
