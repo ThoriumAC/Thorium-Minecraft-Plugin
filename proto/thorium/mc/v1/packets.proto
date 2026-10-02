@@ -265,7 +265,7 @@ message EntityMetadata {
   // A slime's, magma cube's or phantom's size, which scales its box.
   bool has_size = 19; int32 size = 20;
 }
-message AttributeModifier { double amount = 1; int32 op = 2; }
+message AttributeModifier { double amount = 1; int32 op = 2; string id = 3; }  // id: identifier from 1.21, UUID before
 message Attribute { string name = 1; double base = 2; repeated AttributeModifier modifiers = 3; }
 message EntityAttributes { int32 id = 1; repeated Attribute attributes = 2; }
 message EntityEffect { int32 id = 1; string effect = 2; int32 amplifier = 3; int32 duration = 4; bool remove = 5; }
@@ -275,7 +275,7 @@ message Passengers { int32 vehicle = 1; repeated int32 ids = 2; }
 message PlayerPosition { int32 teleport_id = 1; Vec3 position = 2; Look look = 3; int32 relative_flags = 4; bool dismount = 5; }
 message PlayerAbilities { bool may_fly = 1; bool flying = 2; float fly_speed = 3; float walk_speed = 4; bool invulnerable = 5; }
 message GameState { int32 reason = 1; float value = 2; }
-message RespawnOut { string dimension = 1; int32 gamemode = 2; bool keep_all = 3; }
+message RespawnOut { string dimension = 1; int32 gamemode = 2; bool keep_all = 3; bool keep_attributes = 4; }
 // The enchantment levels are the same four EquipmentSlot carries. The server
 // never sends equipment packets about a player to that player, so the player's
 // own tool and boots are only ever described here.
@@ -283,7 +283,30 @@ message SlotOut {
   int32 window = 1; int32 state_id = 2; int32 slot = 3; string item = 4; int32 count = 5;
   int32 efficiency = 6; bool aqua_affinity = 7; int32 depth_strider = 8; int32 soul_speed = 9;
   bool enchants_known = 10; // false from a plugin that predates the four fields above
+  ItemPatch patch = 11;
 }
+// What a stack's component patch changes against its item type's defaults,
+// among the components that change how the client moves or mines. The patch is
+// what reaches the client; the defaults are its own, which the engine's item
+// tables stand in for. A tri-state 0 is the type's default, 1 set, 2 removed.
+message ItemPatch {
+  int32 glider = 1;
+  int32 consumable = 2;
+  float consume_seconds = 3;
+  int32 use_effects = 4; // removed reverts to vanilla's default speed, 0.2
+  float use_speed = 5;
+  int32 tool = 6;
+  float tool_default_speed = 7;
+  repeated ToolRule tool_rules = 8;
+  int32 attack_range = 9;
+  float attack_max_reach = 10;
+  float attack_max_creative_reach = 11;
+  float attack_hitbox_margin = 12;
+  int32 piercing_weapon = 13;
+  int32 blocks_attacks = 14;
+}
+// A tool rule's blocks are either a tag or a list.
+message ToolRule { string tag = 1; repeated string blocks = 2; bool has_speed = 3; float speed = 4; int32 correct = 5; } // correct: 0 unset, 1 true, 2 false
 message WindowItems { int32 window = 1; int32 state_id = 2; repeated SlotOut slots = 3; }
 message OpenWindow { int32 window = 1; string type = 2; }
 message CloseWindowOut { int32 window = 1; }
@@ -326,5 +349,9 @@ message Outbound {
     KeepAliveOut keep_alive = 23;
     BlockChangeOut block_change = 24;
     MultiBlockChangeOut multi_block_change = 25;
+    TickingState ticking_state = 26;
   }
 }
+
+// The server's tick rate as the client is told it (/tick, 1.20.3+).
+message TickingState { float tick_rate = 1; bool frozen = 2; }

@@ -44,7 +44,7 @@ public final class OutboundCapture extends PacketListenerAbstract implements Tel
                 OPEN_HORSE_WINDOW, CLOSE_WINDOW, HELD_ITEM_CHANGE, SET_COOLDOWN, EXPLOSION,
                 ENTITY_STATUS, UPDATE_HEALTH, KEEP_ALIVE, BLOCK_CHANGE, MULTI_BLOCK_CHANGE,
                 INITIALIZE_WORLD_BORDER, WORLD_BORDER_SIZE, WORLD_BORDER_CENTER,
-                WORLD_BORDER_LERP_SIZE);
+                WORLD_BORDER_LERP_SIZE, TICKING_STATE);
     }
 
     public OutboundCapture(Telemetry telemetry, EntityTracker entities, ErrorGate gate) {
@@ -178,9 +178,11 @@ public final class OutboundCapture extends PacketListenerAbstract implements Tel
                 if (w.getEntityId() != self && !entities.contains(viewer, w.getEntityId())) return;
                 EntityAttributes.Builder b = EntityAttributes.newBuilder().setId(w.getEntityId());
                 for (WrapperPlayServerUpdateAttributes.Property pr : w.getProperties()) {
-                    Attribute.Builder a = Attribute.newBuilder().setName(pr.getKey() == null ? "" : pr.getKey()).setBase(pr.getValue());
+                    String name = pr.getAttribute() == null || pr.getAttribute().getName() == null ? "" : pr.getAttribute().getName().toString();
+                    Attribute.Builder a = Attribute.newBuilder().setName(name).setBase(pr.getValue());
                     for (WrapperPlayServerUpdateAttributes.PropertyModifier m : pr.getModifiers()) {
-                        a.addModifiers(AttributeModifier.newBuilder().setAmount(m.getAmount()).setOp(m.getOperation() == null ? 0 : m.getOperation().ordinal()));
+                        String mid = m.getName() != null ? m.getName().toString() : m.getUUID() != null ? m.getUUID().toString() : "";
+                        a.addModifiers(AttributeModifier.newBuilder().setAmount(m.getAmount()).setOp(m.getOperation() == null ? 0 : m.getOperation().ordinal()).setId(mid));
                     }
                     b.addAttributes(a);
                 }
@@ -240,11 +242,17 @@ public final class OutboundCapture extends PacketListenerAbstract implements Tel
                 fenced(event, p, Outbound.newBuilder().setGameState(GameState.newBuilder().setReason(w.getReason() == null ? 0 : w.getReason().ordinal()).setValue(w.getValue())));
                 break;
             }
+            case TICKING_STATE: {
+                WrapperPlayServerTickingState w = new WrapperPlayServerTickingState(event);
+                fenced(event, p, Outbound.newBuilder().setTickingState(TickingState.newBuilder().setTickRate(w.getTickRate()).setFrozen(w.isFrozen())));
+                break;
+            }
             case RESPAWN: {
                 WrapperPlayServerRespawn w = new WrapperPlayServerRespawn(event);
                 fenced(event, p, Outbound.newBuilder().setRespawn(RespawnOut.newBuilder()
                         .setDimension(w.getDimension() == null ? "" : String.valueOf(w.getDimension().getDimensionName()))
-                        .setGamemode(w.getGameMode() == null ? 0 : w.getGameMode().ordinal()).setKeepAll(w.isKeepingAllPlayerData())));
+                        .setGamemode(w.getGameMode() == null ? 0 : w.getGameMode().ordinal()).setKeepAll(w.isKeepingAllPlayerData())
+                        .setKeepAttributes((w.getKeptData() & WrapperPlayServerRespawn.KEEP_ATTRIBUTES) != 0)));
                 break;
             }
             case SET_SLOT: {
