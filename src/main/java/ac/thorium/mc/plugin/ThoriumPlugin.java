@@ -276,7 +276,7 @@ public final class ThoriumPlugin extends JavaPlugin {
             else if (opcode == FrameDiscriminator.GATEWAY_MOD_UPDATE) getLogger().warning("Thorium gateway: update notice");
         }
         @Override public void onStateChange(ConnectionState from, ConnectionState to) {
-            Level lvl = (to == ConnectionState.READY || to == ConnectionState.HELD || to == ConnectionState.STOPPED) ? Level.INFO : Level.FINE;
+            Level lvl = (to == ConnectionState.HELD || to == ConnectionState.STOPPED) ? Level.INFO : Level.FINE;
             getLogger().log(lvl, "Thorium: connection " + from + " -> " + to);
         }
         @Override public void onDisconnected() { Telemetry t = telemetry; if (t != null) t.onDisconnected(); }

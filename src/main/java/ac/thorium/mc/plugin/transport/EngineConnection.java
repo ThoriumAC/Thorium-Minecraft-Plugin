@@ -264,7 +264,7 @@ public final class EngineConnection {
         setState(ConnectionState.READY);
         safe(() -> handler.onHelloAck(a));
         if (a.hasPolicy()) safe(() -> handler.onPolicy(a.getPolicy()));
-        log.info("Thorium: connected to engine (server " + serverIdHex + ")");
+        log.fine("Thorium: connected to engine (server " + serverIdHex + ")");
         return true;
     }
 
@@ -293,7 +293,7 @@ public final class EngineConnection {
         // and drops at once would otherwise be retried, and every online player
         // re-stated, every couple of seconds.
         if (up >= STABLE_MS) backoff.reset();
-        log.info("Thorium: connection closed (" + closeDescription(code, reason, up, lastSocketError) + "), reconnecting");
+        log.log(up >= 0 && up < STABLE_MS ? Level.WARNING : Level.FINE, "Thorium: connection closed (" + closeDescription(code, reason, up, lastSocketError) + "), reconnecting");
         sleepBackoff(backoff.nextDelayMs());
         return false;
     }
