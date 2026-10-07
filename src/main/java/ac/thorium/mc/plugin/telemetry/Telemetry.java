@@ -221,6 +221,7 @@ public final class Telemetry implements HelloSupplier {
     }
 
     public void snapshotAll() {
+        sched.runGlobal(() -> gate.run("tags", () -> sendBlockTags(true)));
         for (Player p : players.values()) sched.runForPlayer(p, () -> gate.run("state:snapshot", () -> {
             inventorySnapshot(p);
             stateSnapshot(p);
@@ -229,6 +230,9 @@ public final class Telemetry implements HelloSupplier {
         }));
     }
 
+    private static final java.lang.reflect.Method TICK_MANAGER = ac.thorium.mc.plugin.compat.Reflect.method(org.bukkit.Bukkit.class, "getServerTickManager");
+    private static final java.lang.reflect.Method TICK_RATE = ac.thorium.mc.plugin.compat.Reflect.method("org.bukkit.ServerTickManager", "getTickRate");
+    private static final java.lang.reflect.Method TICK_FROZEN = ac.thorium.mc.plugin.compat.Reflect.method("org.bukkit.ServerTickManager", "isFrozen");
     private static final java.lang.reflect.Method GLIDING = ac.thorium.mc.plugin.compat.Reflect.method(org.bukkit.entity.LivingEntity.class, "isGliding");
     private static final java.lang.reflect.Method SWIMMING = ac.thorium.mc.plugin.compat.Reflect.method(org.bukkit.entity.LivingEntity.class, "isSwimming");
 
@@ -260,6 +264,10 @@ public final class Telemetry implements HelloSupplier {
                 .setInvulnerable(gm == org.bukkit.GameMode.CREATIVE || gm == org.bukkit.GameMode.SPECTATOR))));
         fence(p, outbound(p, Outbound.newBuilder().setHealth(Health.newBuilder()
                 .setHealth((float) p.getHealth()).setFood(p.getFoodLevel()).setSaturation(p.getSaturation()))));
+        Object tm = ac.thorium.mc.plugin.compat.Reflect.invoke(TICK_MANAGER, null);
+        Object rate = tm == null ? null : ac.thorium.mc.plugin.compat.Reflect.invoke(TICK_RATE, tm);
+        if (rate instanceof Float) fence(p, outbound(p, Outbound.newBuilder().setTickingState(ac.thorium.mc.proto.TickingState.newBuilder()
+                .setTickRate((Float) rate).setFrozen(ac.thorium.mc.plugin.compat.Reflect.bool(TICK_FROZEN, tm, false)))));
         for (org.bukkit.potion.PotionEffect e : p.getActivePotionEffects()) {
             String name = effectKey(e.getType());
             if (name == null) continue;
@@ -301,6 +309,18 @@ public final class Telemetry implements HelloSupplier {
         players.put(p.getUniqueId(), p);
         byEntityId.put(p.getEntityId(), roster.get(p.getUniqueId()));
         sched.runForPlayer(p, () -> gate.run("inventory:snapshot", () -> inventorySnapshot(p)));
+        sched.runGlobal(() -> gate.run("tags", () -> sendBlockTags(false)));
+    }
+
+    private volatile int tagsHash;
+
+    // Tags are server-wide: sent on every connect, and again when a join finds
+    // them changed by a datapack reload.
+    private void sendBlockTags(boolean force) {
+        ac.thorium.mc.proto.BlockTags t = ac.thorium.mc.plugin.capture.ServerTags.blocks();
+        if (t == null || (!force && t.hashCode() == tagsHash)) return;
+        tagsHash = t.hashCode();
+        send(UpStream.newBuilder().setBlockTags(t).build());
     }
 
     public void inventorySnapshot(Player p) {

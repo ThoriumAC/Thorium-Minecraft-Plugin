@@ -21,8 +21,14 @@ message UpStream {
     WorldDelta world_delta = 6;
     Report report = 7;
     Activity activity = 8;
+    BlockTags block_tags = 9;
   }
 }
+
+// The server's block tags, as every client receives them with any datapack
+// applied. A new set replaces the last.
+message BlockTags { repeated BlockTag tags = 1; }
+message BlockTag { string name = 1; repeated string blocks = 2; }
 
 // Every WebSocket binary frame from the engine is exactly one DownStream.
 // Frames whose first byte is < 0x08 are gateway control frames, not DownStream.
