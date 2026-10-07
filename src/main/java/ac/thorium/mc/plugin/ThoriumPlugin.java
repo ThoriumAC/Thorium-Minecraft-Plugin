@@ -93,6 +93,9 @@ public final class ThoriumPlugin extends JavaPlugin {
         ac.thorium.mc.plugin.command.ReportCommand report = new ac.thorium.mc.plugin.command.ReportCommand(() -> settings, () -> connection, () -> telemetry);
         getCommand("report").setExecutor(report);
         getCommand("report").setTabCompleter(report);
+        ac.thorium.mc.plugin.command.StatsCommand stats = new ac.thorium.mc.plugin.command.StatsCommand(() -> connection, () -> telemetry);
+        getCommand("stats").setExecutor(stats);
+        getCommand("stats").setTabCompleter(stats);
         if (packetEventsReady) {
             try { PacketEvents.getAPI().init(); } catch (Throwable t) { packetEventsReady = false; getLogger().log(Level.SEVERE, "Thorium: packetevents init failed; capture disabled", t); }
         }
@@ -203,6 +206,8 @@ public final class ThoriumPlugin extends JavaPlugin {
         activity = new ac.thorium.mc.plugin.capture.ActivityEvents(settings, () -> connection, telemetry, gate);
         getServer().getPluginManager().registerEvents(activity, this);
         activity.start(sched);
+        final ac.thorium.mc.plugin.capture.ActivityEvents a = activity;
+        ac.thorium.mc.api.ThoriumStats.bind((p, kind, key, amount) -> a.custom(p, kind, key, amount));
         worldEvents = new WorldBlockEvents(world, gate);
         getServer().getPluginManager().registerEvents(worldEvents, this);
         worldSampler = new WorldSampler(world, sched, gate, getServer(), this::engineReady);
@@ -230,6 +235,7 @@ public final class ThoriumPlugin extends JavaPlugin {
         if (mitigator != null && packetEventsReady) PacketEvents.getAPI().getEventManager().unregisterListener(mitigator);
         if (events != null) HandlerList.unregisterAll(events);
         if (activity != null) { activity.stop(sched); HandlerList.unregisterAll(activity); }
+        ac.thorium.mc.api.ThoriumStats.bind(null);
         activity = null;
         connection = null; telemetry = null; capture = null; outbound = null; mitigator = null; tickTask = null; events = null;
         worldSampler = null; worldEvents = null; world = null;

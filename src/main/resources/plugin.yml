@@ -16,6 +16,11 @@ commands:
     description: Report a player to staff
     usage: /report <player> [reason]
     permission: thorium.report
+  stats:
+    description: Hide or show yourself on the network's public stats
+    usage: /stats <hide|show>
+    aliases: [tstats]
+    permission: thorium.stats
 permissions:
   thorium.report:
     description: /report other players
@@ -32,3 +37,6 @@ permissions:
     default: op
     children:
       thorium.use: true
+  thorium.stats:
+    description: /stats hide and /stats show
+    default: true

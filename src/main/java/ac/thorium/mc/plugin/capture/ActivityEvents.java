@@ -23,6 +23,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.enchantment.EnchantItemEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
@@ -90,6 +91,31 @@ public final class ActivityEvents implements Listener {
             b.setWorld(at.getWorld().getName()).setPosition(Vec3.newBuilder().setX(at.getX()).setY(at.getY()).setZ(at.getZ()));
         }
         queue.add(b.build());
+    }
+
+    public void custom(Player p, String kind, String key, double amount) {
+        record(p, kind, key, "", null, p.getLocation(), amount);
+    }
+
+    private static Player playerOf(Entity damager) {
+        if (damager instanceof Player) return (Player) damager;
+        if (damager instanceof Projectile && ((Projectile) damager).getShooter() instanceof Player) {
+            return (Player) ((Projectile) damager).getShooter();
+        }
+        return null;
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamage(EntityDamageEvent e) {
+        gate.run("activity:damage", () -> {
+            double hearts = e.getFinalDamage() / 2.0;
+            if (hearts <= 0) return;
+            Player attacker = e instanceof EntityDamageByEntityEvent ? playerOf(((EntityDamageByEntityEvent) e).getDamager()) : null;
+            Entity hurt = e.getEntity();
+            Player victim = hurt instanceof Player ? (Player) hurt : null;
+            if (victim != null) record(victim, "damage_taken", e.getCause().name(), "", attacker, hurt.getLocation(), hearts);
+            if (attacker != null && attacker != victim) record(attacker, "damage_dealt", hurt.getType().name(), e.getCause().name(), victim, hurt.getLocation(), hearts);
+        });
     }
 
     private static String type(ItemStack it) { return it == null ? "" : it.getType().name(); }
