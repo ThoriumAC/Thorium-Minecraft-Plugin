@@ -146,6 +146,7 @@ message Join {
   string brand = 3;
   int32 gamemode = 4;
   int32 entity_id = 5;           // the player's own entity id
+  string skin_texture = 6;       // Mojang texture hash of the skin the player joined with; empty when unknown
 }
 message Quit { string reason = 1; }
 message Teleport { Vec3 to = 1; Look look = 2; string cause = 3; }

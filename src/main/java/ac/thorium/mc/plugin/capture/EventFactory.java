@@ -7,8 +7,8 @@ import java.net.InetSocketAddress;
 public final class EventFactory {
     private EventFactory() {}
 
-    public static PlayerEvent.Builder join(String ip, int protocolVersion, String brand, int gamemode, int entityId) {
-        return PlayerEvent.newBuilder().setJoin(Join.newBuilder().setIp(ip == null ? "" : ip).setProtocolVersion(protocolVersion).setBrand(brand == null ? "" : brand).setGamemode(gamemode).setEntityId(entityId));
+    public static PlayerEvent.Builder join(String ip, int protocolVersion, String brand, int gamemode, int entityId, String skinTexture) {
+        return PlayerEvent.newBuilder().setJoin(Join.newBuilder().setIp(ip == null ? "" : ip).setProtocolVersion(protocolVersion).setBrand(brand == null ? "" : brand).setGamemode(gamemode).setEntityId(entityId).setSkinTexture(skinTexture == null ? "" : skinTexture));
     }
     public static PlayerEvent.Builder quit(String reason) { return PlayerEvent.newBuilder().setQuit(Quit.newBuilder().setReason(reason == null ? "" : reason)); }
     public static PlayerEvent.Builder teleport(double x, double y, double z, float yaw, float pitch, String cause) {
