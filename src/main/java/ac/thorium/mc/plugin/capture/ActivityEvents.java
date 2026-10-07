@@ -108,10 +108,10 @@ public final class ActivityEvents implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDamage(EntityDamageEvent e) {
         gate.run("activity:damage", () -> {
-            double hearts = e.getFinalDamage() / 2.0;
+            Entity hurt = e.getEntity();
+            double hearts = DamageCap.hearts(e.getFinalDamage(), hurt instanceof LivingEntity ? ((LivingEntity) hurt).getHealth() : -1);
             if (hearts <= 0) return;
             Player attacker = e instanceof EntityDamageByEntityEvent ? playerOf(((EntityDamageByEntityEvent) e).getDamager()) : null;
-            Entity hurt = e.getEntity();
             Player victim = hurt instanceof Player ? (Player) hurt : null;
             if (victim != null) record(victim, "damage_taken", e.getCause().name(), "", attacker, hurt.getLocation(), hearts);
             if (attacker != null && attacker != victim) record(attacker, "damage_dealt", hurt.getType().name(), e.getCause().name(), victim, hurt.getLocation(), hearts);
