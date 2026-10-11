@@ -181,7 +181,7 @@ public final class ThoriumPlugin extends JavaPlugin {
 
     private void startPipeline() {
         String version = getDescription().getVersion();
-        SampleBuffer buffer = new SampleBuffer(400);
+        SampleBuffer buffer = new SampleBuffer(2048);
         settings = new ac.thorium.mc.plugin.config.NetworkSettings(cfg.sendIp);
         enforcer = new Enforcer(getServer(), sched, compat, gate, alerts, cfg, settings, getLogger());
         world = new WorldMirror();
