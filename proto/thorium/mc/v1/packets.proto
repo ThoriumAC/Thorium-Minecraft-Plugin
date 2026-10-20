@@ -264,7 +264,6 @@ message EntityMetadata {
   bool has_flags = 13; bool has_pose = 14; bool has_baby = 15; bool baby = 16; bool has_peek = 17; int32 peek = 18;
   // A slime's, magma cube's or phantom's size, which scales its box.
   bool has_size = 19; int32 size = 20;
-  bool has_using = 21; bool using = 22;
 }
 message AttributeModifier { double amount = 1; int32 op = 2; string id = 3; }  // id: identifier from 1.21, UUID before
 message Attribute { string name = 1; double base = 2; repeated AttributeModifier modifiers = 3; }

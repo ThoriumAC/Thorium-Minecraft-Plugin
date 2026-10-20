@@ -54,7 +54,6 @@ public final class WorldBlockEvents implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent e) {
-        if (!destroys(e)) return;
         gate.run("world:explode", () -> {
             for (Block b : e.blockList()) set(b, SnapshotReader.AIR);
         });
@@ -62,19 +61,9 @@ public final class WorldBlockEvents implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockExplode(BlockExplodeEvent e) {
-        if (!destroys(e)) return;
         gate.run("world:explode", () -> {
             for (Block b : e.blockList()) set(b, SnapshotReader.AIR);
         });
-    }
-
-    private static boolean destroys(Object event) {
-        try {
-            String r = String.valueOf(event.getClass().getMethod("getExplosionResult").invoke(event));
-            return r.startsWith("DESTROY");
-        } catch (ReflectiveOperationException ex) {
-            return true;
-        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
