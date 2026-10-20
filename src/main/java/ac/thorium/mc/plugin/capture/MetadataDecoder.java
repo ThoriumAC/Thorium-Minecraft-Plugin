@@ -8,7 +8,7 @@ import java.util.List;
 public final class MetadataDecoder {
     private MetadataDecoder() {}
 
-    private static final int IDX_FLAGS = 0, IDX_POSE = 6, IDX_BABY = 16, IDX_PEEK = 17;
+    private static final int IDX_FLAGS = 0, IDX_POSE = 6, IDX_BABY = 16, IDX_PEEK = 17, IDX_LIVING = 8, IDX_LIVING_OLD = 7;
 
     public static EntityMetadata.Builder decode(int id, List<EntityData<?>> data) {
         if (data == null || data.isEmpty()) return null;
@@ -28,6 +28,8 @@ public final class MetadataDecoder {
                 b.setHasSize(true).setSize((Integer) v);
             } else if (d.getIndex() == IDX_BABY && v instanceof Boolean) {
                 b.setHasBaby(true).setBaby((Boolean) v);
+            } else if ((d.getIndex() == IDX_LIVING || d.getIndex() == IDX_LIVING_OLD) && v instanceof Byte) {
+                b.setHasUsing(true).setUsing(((Byte) v & 0x01) != 0);
             } else if (d.getIndex() == IDX_PEEK && v instanceof Byte) {
                 b.setHasPeek(true).setPeek((Byte) v);
             } else continue;
