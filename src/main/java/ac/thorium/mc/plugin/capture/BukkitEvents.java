@@ -44,7 +44,7 @@ public final class BukkitEvents implements Listener {
         gate.run("event:join", () -> {
             Player p = e.getPlayer();
             telemetry.track(p);
-            telemetry.event(p, EventFactory.join(EventFactory.hostAddress(p.getAddress(), settings.sendIps()), protocol(p), "", Names.gamemode(p.getGameMode().name()), p.getEntityId()));
+            telemetry.event(p, EventFactory.join(EventFactory.hostAddress(p.getAddress(), settings.sendIps()), protocol(p), "", Names.gamemode(p.getGameMode().name()), p.getEntityId(), SkinTexture.of(p)));
         });
     }
 

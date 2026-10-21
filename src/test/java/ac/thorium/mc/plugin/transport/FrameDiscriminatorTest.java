@@ -36,4 +36,13 @@ class FrameDiscriminatorTest {
         assertFalse(FrameDiscriminator.isResyncText("{\"type\":\"other\"}"));
         assertFalse(FrameDiscriminator.isResyncText(null));
     }
+
+    @Test
+    void probeText() {
+        String probe = "{\"type\":\"probe\",\"id\":\"6f1c2a9e-0d3b-4f7a-9a51-1c2d3e4f5a6b\"}";
+        assertTrue(FrameDiscriminator.isProbeText(probe));
+        assertFalse(FrameDiscriminator.isResyncText(probe));
+        assertFalse(FrameDiscriminator.isProbeText("{\"type\":\"resync\"}"));
+        assertFalse(FrameDiscriminator.isProbeText(null));
+    }
 }

@@ -11,6 +11,7 @@ import ac.thorium.mc.plugin.compat.PacketEventsVersions;
 import ac.thorium.mc.plugin.compat.Reflect;
 import ac.thorium.mc.plugin.compat.Scheduler;
 import ac.thorium.mc.plugin.compat.ServerCompat;
+import ac.thorium.mc.plugin.config.ConfigFile;
 import ac.thorium.mc.plugin.config.PluginConfig;
 import ac.thorium.mc.plugin.enforce.Enforcer;
 import ac.thorium.mc.plugin.enforce.Mitigator;
@@ -34,10 +35,16 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import org.bukkit.configuration.file.YamlConfiguration;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.logging.Level;
 
 public final class ThoriumPlugin extends JavaPlugin {
+    public static final File CONFIG_FILE = new File("config", "thorium.yml");
     private PluginConfig cfg;
     private ErrorGate gate;
     private Scheduler sched;
@@ -79,8 +86,7 @@ public final class ThoriumPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
-        cfg = PluginConfig.from(getConfig());
+        cfg = loadConfig();
         gate = new ErrorGate(getLogger(), 60_000, System::currentTimeMillis);
         sched = Scheduler.create(this);
         compat = new ServerCompat(getServer());
@@ -97,12 +103,12 @@ public final class ThoriumPlugin extends JavaPlugin {
             try { PacketEvents.getAPI().init(); } catch (Throwable t) { packetEventsReady = false; getLogger().log(Level.SEVERE, "Thorium: packetevents init failed; capture disabled", t); }
         }
         if (!cfg.isConfigured()) {
-            getLogger().severe("Thorium: server-token is empty in plugins/Thorium/config.yml - the plugin is idle until configured (/thorium reconnect after editing).");
+            getLogger().severe("Thorium: not configured. Run /thorium setup <code> with a code from the dashboard, or fill in " + CONFIG_FILE + " and run /thorium reconnect.");
             return;
         }
         if (cfg.needsServerName()) {
             getLogger().severe("Thorium: server-token is a network token, so server-name must say which server this is. "
-                    + "Set server-name in plugins/Thorium/config.yml to a server on this network, then /thorium reconnect.");
+                    + "Set server-name in " + CONFIG_FILE + " to a server on this network, then /thorium reconnect.");
             return;
         }
         if (!gatewayUsable()) return;
@@ -178,8 +184,8 @@ public final class ThoriumPlugin extends JavaPlugin {
 
     private void startPipeline() {
         String version = getDescription().getVersion();
-        SampleBuffer buffer = new SampleBuffer(400);
-        settings = new ac.thorium.mc.plugin.config.NetworkSettings(cfg.sendIp);
+        SampleBuffer buffer = new SampleBuffer(2048);
+        settings = new ac.thorium.mc.plugin.config.NetworkSettings();
         enforcer = new Enforcer(getServer(), sched, compat, gate, alerts, cfg, settings, getLogger());
         world = new WorldMirror();
         ConnectionConfig ccfg = new ConnectionConfig(cfg.gatewayUrl, cfg.devSessionToken, version);
@@ -203,6 +209,8 @@ public final class ThoriumPlugin extends JavaPlugin {
         activity = new ac.thorium.mc.plugin.capture.ActivityEvents(settings, () -> connection, telemetry, gate);
         getServer().getPluginManager().registerEvents(activity, this);
         activity.start(sched);
+        final ac.thorium.mc.plugin.capture.ActivityEvents a = activity;
+        ac.thorium.mc.api.ThoriumStats.bind((p, kind, key, amount) -> a.custom(p, kind, key, amount));
         worldEvents = new WorldBlockEvents(world, gate);
         getServer().getPluginManager().registerEvents(worldEvents, this);
         worldSampler = new WorldSampler(world, sched, gate, getServer(), this::engineReady);
@@ -230,14 +238,27 @@ public final class ThoriumPlugin extends JavaPlugin {
         if (mitigator != null && packetEventsReady) PacketEvents.getAPI().getEventManager().unregisterListener(mitigator);
         if (events != null) HandlerList.unregisterAll(events);
         if (activity != null) { activity.stop(sched); HandlerList.unregisterAll(activity); }
+        ac.thorium.mc.api.ThoriumStats.bind(null);
         activity = null;
         connection = null; telemetry = null; capture = null; outbound = null; mitigator = null; tickTask = null; events = null;
         worldSampler = null; worldEvents = null; world = null;
     }
 
+    private PluginConfig loadConfig() {
+        ConfigFile.migrate(new File(getDataFolder(), "config.yml").toPath(), CONFIG_FILE.toPath(), getLogger());
+        if (!CONFIG_FILE.exists()) {
+            try (InputStream in = getResource("config.yml")) {
+                Files.createDirectories(CONFIG_FILE.toPath().getParent());
+                Files.copy(in, CONFIG_FILE.toPath());
+            } catch (IOException e) {
+                getLogger().log(Level.SEVERE, "Thorium: could not write " + CONFIG_FILE, e);
+            }
+        }
+        return PluginConfig.from(YamlConfiguration.loadConfiguration(CONFIG_FILE));
+    }
+
     public void reconnect() {
-        reloadConfig();
-        cfg = PluginConfig.from(getConfig());
+        cfg = loadConfig();
         stopPipeline();
         if (!cfg.isConfigured()) { getLogger().severe("Thorium: still not configured."); return; }
         if (!gatewayUsable()) return;

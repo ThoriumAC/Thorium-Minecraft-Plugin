@@ -205,7 +205,16 @@ public final class Telemetry implements HelloSupplier {
         }
     }
 
+    private void refreshAttributes() {
+        for (Player p : players.values()) sched.runForPlayer(p, () -> gate.run("state:attributes", () -> {
+            if (!p.isOnline() || !roster.containsKey(p.getUniqueId())) return;
+            EntityAttributes attrs = attributesOf(p);
+            if (attrs != null) fence(p, outbound(p, Outbound.newBuilder().setEntityAttributes(attrs)));
+        }));
+    }
+
     private void heartbeat() {
+        refreshAttributes();
         send(UpStream.newBuilder().setHeartbeat(Heartbeat.newBuilder().setClientTimeMs(System.currentTimeMillis())
                 .setOnlinePlayers(roster.size()).setTps(compat.tps()).setMspt(compat.mspt())).build());
     }
@@ -236,6 +245,40 @@ public final class Telemetry implements HelloSupplier {
     private static final java.lang.reflect.Method GLIDING = ac.thorium.mc.plugin.compat.Reflect.method(org.bukkit.entity.LivingEntity.class, "isGliding");
     private static final java.lang.reflect.Method SWIMMING = ac.thorium.mc.plugin.compat.Reflect.method(org.bukkit.entity.LivingEntity.class, "isSwimming");
 
+    private static final Class<?> ATTRIBUTE = ac.thorium.mc.plugin.compat.Reflect.loadClass("org.bukkit.attribute.Attribute");
+
+    private static EntityAttributes attributesOf(Player p) {
+        if (ATTRIBUTE == null) return null;
+        try {
+            Class<?> instCls = Class.forName("org.bukkit.attribute.AttributeInstance");
+            Class<?> modCls = Class.forName("org.bukkit.attribute.AttributeModifier");
+            java.lang.reflect.Method get = Class.forName("org.bukkit.attribute.Attributable").getMethod("getAttribute", ATTRIBUTE);
+            java.lang.reflect.Method key = Class.forName("org.bukkit.Keyed").getMethod("getKey");
+            java.lang.reflect.Method base = instCls.getMethod("getBaseValue"), mods = instCls.getMethod("getModifiers");
+            java.lang.reflect.Method amount = modCls.getMethod("getAmount"), operation = modCls.getMethod("getOperation");
+            java.lang.reflect.Method modKey = null, modUuid = null;
+            try { modKey = modCls.getMethod("getKey"); } catch (NoSuchMethodException e) { modUuid = modCls.getMethod("getUniqueId"); }
+            Iterable<?> all = ATTRIBUTE.isEnum() ? java.util.Arrays.asList(ATTRIBUTE.getEnumConstants())
+                    : (Iterable<?>) Class.forName("org.bukkit.Registry").getField("ATTRIBUTE").get(null);
+            EntityAttributes.Builder b = EntityAttributes.newBuilder().setId(p.getEntityId());
+            for (Object a : all) {
+                Object inst = get.invoke(p, a);
+                if (inst == null) continue;
+                String name = key.getDeclaringClass().isInstance(a) ? String.valueOf(key.invoke(a)) : ((Enum<?>) a).name().toLowerCase(java.util.Locale.ROOT);
+                Attribute.Builder ab = Attribute.newBuilder().setName(name).setBase((Double) base.invoke(inst));
+                for (Object m : (java.util.Collection<?>) mods.invoke(inst)) {
+                    String mid = String.valueOf(modKey != null ? modKey.invoke(m) : modUuid.invoke(m));
+                    ab.addModifiers(AttributeModifier.newBuilder().setAmount((Double) amount.invoke(m))
+                            .setOp(((Enum<?>) operation.invoke(m)).ordinal()).setId(mid));
+                }
+                b.addAttributes(ab);
+            }
+            return b.getAttributesCount() == 0 ? null : b.build();
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
+        }
+    }
+
     private static String effectKey(Object type) {
         try {
             Object key = type.getClass().getMethod("getKey").invoke(type);
@@ -257,6 +300,8 @@ public final class Telemetry implements HelloSupplier {
         if (!p.isOnline() || !roster.containsKey(p.getUniqueId())) return;
         int id = p.getEntityId();
         fence(p, outbound(p, Outbound.newBuilder().setEntityMetadata(flagsOf(p))));
+        EntityAttributes attrs = attributesOf(p);
+        if (attrs != null) fence(p, outbound(p, Outbound.newBuilder().setEntityAttributes(attrs)));
         org.bukkit.GameMode gm = p.getGameMode();
         // Bukkit speeds are double the protocol values.
         fence(p, outbound(p, Outbound.newBuilder().setPlayerAbilities(PlayerAbilities.newBuilder().setMayFly(p.getAllowFlight())

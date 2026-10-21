@@ -2,6 +2,8 @@ package ac.thorium.mc.plugin.command;
 
 import ac.thorium.mc.plugin.ThoriumPlugin;
 import ac.thorium.mc.plugin.enforce.StaffAlerts;
+import ac.thorium.mc.plugin.config.ConfigFile;
+import ac.thorium.mc.plugin.transport.SessionAuth;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -22,7 +24,7 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
     public static List<String> complete(String partial, boolean admin, boolean alerts) {
         List<String> out = new ArrayList<>();
         if (alerts) out.add("alerts");
-        if (admin) { out.add("capture"); out.add("compat"); out.add("reconnect"); out.add("status"); }
+        if (admin) { out.add("capture"); out.add("compat"); out.add("reconnect"); out.add("setup"); out.add("status"); }
         List<String> filtered = new ArrayList<>();
         for (String s : out) if (s.startsWith(partial.toLowerCase(Locale.ROOT))) filtered.add(s);
         Collections.sort(filtered);
@@ -34,7 +36,7 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
         List<String> l = new ArrayList<>();
         l.add("§8[§cThorium§8] §fplugin " + version + (folia ? " §7(Folia)" : ""));
         l.add("§7server: §f" + software + " " + mcVersion);
-        l.add(configured ? "§7connection: §f" + connectionLine : "§cnot configured §7(set server-token in config.yml)");
+        l.add(configured ? "§7connection: §f" + connectionLine : "§cnot configured §7(run /thorium setup <code> or edit config/thorium.yml)");
         if (configured) l.add("§7telemetry: §f" + telemetryLine);
         l.add("§7enforce: §f" + (enforce ? "on" : "off"));
         return l;
@@ -113,13 +115,30 @@ public final class ThoriumCommand implements CommandExecutor, TabCompleter {
                 catch (java.io.IOException e) { sender.sendMessage("§cCould not open " + f + ": " + e.getMessage()); }
                 return true;
             }
+            case "setup": {
+                if (!sender.hasPermission(ADMIN)) { sender.sendMessage("§cNo permission."); return true; }
+                if (args.length != 2) { sender.sendMessage("§7Usage: /thorium setup <code> §8(make a code in the dashboard under Servers)"); return true; }
+                String code = args[1];
+                String gateway = plugin.config().gatewayUrl;
+                sender.sendMessage("§7Thorium: redeeming setup code…");
+                plugin.scheduler().runAsync(() -> {
+                    try {
+                        String[] r = SessionAuth.redeem(gateway, code, 10_000);
+                        ConfigFile.writeCredentials(ThoriumPlugin.CONFIG_FILE.toPath(), r[0], r[1], true);
+                        plugin.scheduler().runGlobal(() -> { sender.sendMessage("§aThorium set up as §f" + r[1] + "§a. Connecting…"); plugin.reconnect(); });
+                    } catch (java.io.IOException e) {
+                        plugin.scheduler().runGlobal(() -> sender.sendMessage("§cThorium setup failed: " + e.getMessage()));
+                    }
+                });
+                return true;
+            }
             case "reconnect":
                 if (!sender.hasPermission(ADMIN)) { sender.sendMessage("§cNo permission."); return true; }
                 plugin.reconnect();
                 sender.sendMessage("§7Thorium: reconnecting…");
                 return true;
             default:
-                sender.sendMessage("§7Usage: /thorium <status|compat|alerts|reconnect|capture <label>|capture stop>");
+                sender.sendMessage("§7Usage: /thorium <status|compat|alerts|reconnect|setup <code>|capture <label>|capture stop>");
                 return true;
         }
     }

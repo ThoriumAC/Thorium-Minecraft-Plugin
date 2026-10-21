@@ -12,18 +12,15 @@ public final class PluginConfig {
     public final boolean mitigate;
     public final String banCommand;
     public final String unbanCommand;
-    public final boolean sendIp;
     public final String alertFormat;
-    public final String warnFormat;
-    public final String kickFormat;
     public final String devSessionToken;
     public final int entityRadius;
 
     private PluginConfig(String gatewayUrl, String serverToken, String serverName, int flushIntervalMs, boolean enforce, boolean mitigate, String banCommand, String unbanCommand,
-                         boolean sendIp, String alertFormat, String warnFormat, String kickFormat, String devSessionToken, int entityRadius) {
+                         String alertFormat, String devSessionToken, int entityRadius) {
         this.gatewayUrl = gatewayUrl; this.serverToken = serverToken; this.serverName = serverName; this.flushIntervalMs = flushIntervalMs;
-        this.enforce = enforce; this.mitigate = mitigate; this.banCommand = banCommand; this.unbanCommand = unbanCommand; this.sendIp = sendIp; this.alertFormat = alertFormat;
-        this.warnFormat = warnFormat; this.kickFormat = kickFormat; this.devSessionToken = devSessionToken; this.entityRadius = entityRadius;
+        this.enforce = enforce; this.mitigate = mitigate; this.banCommand = banCommand; this.unbanCommand = unbanCommand; this.alertFormat = alertFormat;
+        this.devSessionToken = devSessionToken; this.entityRadius = entityRadius;
     }
 
     public static PluginConfig from(ConfigurationSection c) {
@@ -39,10 +36,7 @@ public final class PluginConfig {
                 c.getBoolean("mitigate", true),
                 c.getString("ban-command", "").trim(),
                 c.getString("unban-command", "").trim(),
-                c.getBoolean("send-ip", false),
                 c.getString("alert-format", "&8[&cThorium&8] &f%player% &7failed &e%check% &7(VL %vl%, %confidence%%)"),
-                c.getString("warn-format", "&c[Thorium] &fSuspicious activity detected (%check%). This is a warning."),
-                c.getString("kick-format", "&cKicked by Thorium anti-cheat\n&7%reason%"),
                 c.getString("dev.session-token", "").trim(),
                 Math.max(4, Math.min(32, c.getInt("entity-radius", 12))));
     }

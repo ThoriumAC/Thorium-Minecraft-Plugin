@@ -54,6 +54,28 @@ public final class SessionAuth implements TokenSource {
         }
     }
 
+    public static String[] redeem(String base, String code, int timeoutMs) throws IOException {
+        if (!gatewayAllowed(base, false)) throw new IOException("gateway-url must be https to redeem a setup code.");
+        HttpURLConnection conn = (HttpURLConnection) new URL(base + "/api/setup/redeem").openConnection();
+        try {
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(timeoutMs);
+            conn.setReadTimeout(timeoutMs);
+            conn.setUseCaches(false);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.getOutputStream().write(("{\"code\":\"" + code.replaceAll("[^A-Za-z0-9]", "") + "\"}").getBytes(StandardCharsets.UTF_8));
+            int status = conn.getResponseCode();
+            if (status == 404) throw new IOException("That setup code is invalid, expired or already used. Make a new one in the dashboard.");
+            if (status != 200) throw new IOException("The gateway answered HTTP " + status + ".");
+            String[] r = readAll(conn.getInputStream()).split("\n", 2);
+            if (r.length != 2) throw new IOException("The gateway's answer had no token in it.");
+            return r;
+        } finally {
+            conn.disconnect();
+        }
+    }
+
     private static long retryAfterMs(HttpURLConnection conn) {
         String header = conn.getHeaderField("Retry-After");
         if (header == null) return -1L;

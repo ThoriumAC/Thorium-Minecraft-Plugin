@@ -11,5 +11,7 @@ public final class FrameDiscriminator {
 
     public static int opcode(byte[] frame) { return frame == null || frame.length == 0 ? -1 : frame[0] & 0xFF; }
 
+    public static boolean isProbeText(String text) { return text != null && text.startsWith("{\"type\":\"probe\""); }
+
     public static boolean isResyncText(String text) { return text != null && text.toLowerCase(Locale.ROOT).contains("resync"); }
 }

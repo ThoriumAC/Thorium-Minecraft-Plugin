@@ -11,7 +11,6 @@ public final class EnforcementDecision {
         if (v.getStaff()) enforce = true;
         switch (v.getAction()) {
             case ACTION_FLAG: return Outcome.STAFF_ALERT;
-            case ACTION_WARN: return enforce ? Outcome.WARN_PLAYER : Outcome.STAFF_ALERT;
             case ACTION_KICK: return enforce ? Outcome.KICK : Outcome.STAFF_ALERT;
             case ACTION_BAN: return enforce ? (banCommandConfigured ? Outcome.BAN_COMMAND : Outcome.BAN_BUKKIT) : Outcome.STAFF_ALERT;
             case ACTION_UNBAN:
