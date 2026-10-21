@@ -31,10 +31,10 @@ responses.
 
 ## Install
 
-1. Drop `thorium-minecraft-<version>.jar` into `plugins/` and start the server
-   once to generate `plugins/Thorium/config.yml`.
-2. Set `server-token` from your dashboard (and `server-name` for a network
-   token), then restart.
+1. Drop `thorium-minecraft-<version>.jar` into `plugins/` and start the server.
+2. Run `/thorium setup <code>` with a code from the dashboard, or put the
+   dashboard's config file at `config/thorium.yml` and run `/thorium reconnect`.
+   An old `plugins/Thorium/config.yml` is moved there on startup.
 
 Runs on Spigot, Paper and Folia, Minecraft 1.8 through current, Java 8 or newer.
 Dependencies are shaded under `ac.thorium.mc.libs`. See

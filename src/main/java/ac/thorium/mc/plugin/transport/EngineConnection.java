@@ -389,7 +389,10 @@ public final class EngineConnection {
             super(uri, new Draft_6455(Collections.singletonList(new PerMessageDeflateExtension())), headers);
         }
         @Override public void onOpen(ServerHandshake h) {}
-        @Override public void onMessage(String text) { if (FrameDiscriminator.isResyncText(text)) sendHello(); }
+        @Override public void onMessage(String text) {
+            if (FrameDiscriminator.isProbeText(text)) { if (state == ConnectionState.READY) { try { send(text); } catch (Throwable ignored) {} } }
+            else if (FrameDiscriminator.isResyncText(text)) sendHello();
+        }
         @Override public void onMessage(ByteBuffer bytes) { byte[] b = new byte[bytes.remaining()]; bytes.get(b); onBinary(b); }
         @Override public void onClose(int code, String reason, boolean remote) {
             if (closeCode != CLOSE_OUTDATED) { closeCode = code; closeReason = reason == null ? "" : reason; }

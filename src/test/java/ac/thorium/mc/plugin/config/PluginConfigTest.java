@@ -20,18 +20,16 @@ class PluginConfigTest {
         assertTrue(c.enforce);
         assertFalse(c.useBanCommand());
         assertTrue(c.isConfigured());
-        assertFalse(c.sendIp);
         assertEquals("", c.devSessionToken);
     }
 
     @Test
     void trailingSlashStrippedAndValuesRead() throws Exception {
-        PluginConfig c = load("gateway-url: 'http://localhost:3100/'\nflush-interval-ms: 40\nenforce: false\nban-command: 'ban %player% %reason%'\nsend-ip: true\ndev:\n  session-token: dev\n");
+        PluginConfig c = load("gateway-url: 'http://localhost:3100/'\nflush-interval-ms: 40\nenforce: false\nban-command: 'ban %player% %reason%'\ndev:\n  session-token: dev\n");
         assertEquals("http://localhost:3100", c.gatewayUrl);
         assertEquals(40, c.flushIntervalMs);
         assertFalse(c.enforce);
         assertTrue(c.useBanCommand());
-        assertTrue(c.sendIp);
         assertEquals("dev", c.devSessionToken);
         assertTrue(c.isConfigured());
     }

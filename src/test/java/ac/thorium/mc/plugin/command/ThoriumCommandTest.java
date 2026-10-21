@@ -69,5 +69,7 @@ class ThoriumCommandTest {
         assertTrue(ThoriumCommand.complete("comp", true, true).contains("compat"));
         assertFalse(ThoriumCommand.complete("comp", false, true).contains("compat"));
         assertEquals(Arrays.asList("capture", "compat"), ThoriumCommand.complete("c", true, false));
+        assertTrue(ThoriumCommand.complete("se", true, false).contains("setup"));
+        assertFalse(ThoriumCommand.complete("se", false, true).contains("setup"));
     }
 }

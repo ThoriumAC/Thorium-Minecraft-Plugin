@@ -10,7 +10,7 @@ load: POSTWORLD
 commands:
   thorium:
     description: Thorium anti-cheat
-    usage: /thorium <status|compat|alerts|reconnect|capture>
+    usage: /thorium <status|compat|alerts|reconnect|setup|capture>
     permission: thorium.use
   report:
     description: Report a player to staff
@@ -23,7 +23,7 @@ permissions:
   thorium.use:
     default: op
   thorium.admin:
-    description: /thorium status, compat, capture and reconnect
+    description: /thorium status, compat, capture, reconnect and setup
     default: op
     children:
       thorium.use: true
